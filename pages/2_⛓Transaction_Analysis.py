@@ -334,7 +334,7 @@ if not df_daily.empty:
         x="date",
         y="value",
         labels={"date": "Date", "value": "Transactions"},
-        title="Daily Transactions (last 30 days)",
+        title="",
         template="plotly_white"
     )
     # apply purple color and hover formatting
