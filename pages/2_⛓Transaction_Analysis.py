@@ -349,9 +349,3 @@ if not df_daily.empty:
 else:
     st.warning("No daily transaction data available to draw chart.")
 
-# --- Optional: Show raw JSON (collapsed) for debugging ----------------------------------------------------------------
-with st.expander("🔎 Raw API responses (for debugging)", expanded=False):
-    st.write("Main API JSON:")
-    st.json(data_main)
-    st.write("Transactions API JSON:")
-    st.json(data_tx)
