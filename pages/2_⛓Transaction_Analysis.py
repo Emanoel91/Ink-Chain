@@ -8,13 +8,13 @@ from typing import Optional
 
 # --- Page Config ------------------------------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Ink chain",
+    page_title="Inkonchain Dashboard",
     page_icon="https://explorer.inkonchain.com/favicon.ico",
     layout="wide"
 )
 
 # --- Title & Info ----------------------------------------------------------------------------------------------------
-st.title("📊 Ink Chain Stats")
+st.title("📊 Inkonchain Stats")
 
 # --- Sidebar Footer Slightly Left-Aligned (same style as before) ----------------------------------------------------
 st.sidebar.markdown(
@@ -45,8 +45,8 @@ st.sidebar.markdown(
     <div class="sidebar-footer">
         <div>
             <a href="https://x.com/inkonchain" target="_blank">
-                <img src="https://explorer.inkonchain.com/favicon.ico" alt="Ink Logo">
-                Powered by Axelar
+                <img src="https://explorer.inkonchain.com/assets/configs/network_icon.svg" alt="Ink Logo">
+                Powered by Ink
             </a>
         </div>
         <div style="margin-top: 5px;">
