@@ -9,7 +9,7 @@ from typing import Optional
 # --- Page Config ------------------------------------------------------------------------------------------------------
 st.set_page_config(
     page_title="Inkonchain Dashboard",
-    page_icon="https://explorer.inkonchain.com/favicon.ico",
+    page_icon="https://img.cryptorank.io/coins/ink1729850762329.png",
     layout="wide"
 )
 
@@ -45,7 +45,7 @@ st.sidebar.markdown(
     <div class="sidebar-footer">
         <div>
             <a href="https://x.com/inkonchain" target="_blank">
-                <img src="https://explorer.inkonchain.com/assets/configs/network_icon.svg" alt="Ink Logo">
+                <img src="https://img.cryptorank.io/coins/ink1729850762329.png" alt="Ink Logo">
                 Powered by Ink
             </a>
         </div>
@@ -326,7 +326,6 @@ for r in range(rows):
 
 # --- Daily Transactions Chart (30 days) --------------------------------------------------------------------------------
 st.markdown("---")
-st.subheader("📊 Daily Transactions (Last 30 Days)")
 
 if not df_daily.empty:
     fig = px.bar(
@@ -334,7 +333,7 @@ if not df_daily.empty:
         x="date",
         y="value",
         labels={"date": "Date", "value": "Transactions"},
-        title="🟣Number of Txns",
+        title="Daily Transactions (Last 30 Days)",
         template="plotly_white"
     )
     # apply purple color and hover formatting
