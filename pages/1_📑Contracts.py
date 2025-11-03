@@ -10,17 +10,13 @@ import networkx as nx
 
 # --- Page Config ------------------------------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Axelarscan",
-    page_icon="https://axelarscan.io/logos/logo.png",
+    page_title="Ink Chain",
+    page_icon="https://explorer.inkonchain.com/assets/configs/network_icon.svg",
     layout="wide"
 )
 
 # --- Title -----------------------------------------------------------------------------------------------------
-st.title("📊 AXL Token Info")
-
-st.info("📊Charts initially display data for a default time range. Select a custom range to view results for your desired period.")
-st.info("⏳On-chain data retrieval may take a few moments. Please wait while the results load.")
-
+st.title("📑 Smart Contracts")
 # --- Sidebar Footer Slightly Left-Aligned ---------------------------------------------------------------------
 st.sidebar.markdown(
     """
@@ -49,9 +45,9 @@ st.sidebar.markdown(
 
     <div class="sidebar-footer">
         <div>
-            <a href="https://x.com/axelar" target="_blank">
-                <img src="https://img.cryptorank.io/coins/axelar1663924228506.png" alt="Axelar Logo">
-                Powered by Axelar
+            <a href="https://x.com/inkonchain" target="_blank">
+                <img src="https://explorer.inkonchain.com/assets/configs/network_icon.svg" alt="Ink Logo">
+                Powered by Ink
             </a>
         </div>
         <div style="margin-top: 5px;">
