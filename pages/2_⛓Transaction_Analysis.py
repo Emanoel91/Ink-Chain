@@ -8,15 +8,13 @@ from typing import Optional
 
 # --- Page Config ------------------------------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Inkonchain Dashboard - Extended",
+    page_title="Ink chain",
     page_icon="https://explorer.inkonchain.com/favicon.ico",
     layout="wide"
 )
 
 # --- Title & Info ----------------------------------------------------------------------------------------------------
-st.title("📊 Inkonchain Network Stats — Extended")
-st.info("📊Charts initially display data for the past 30 days. Hover bars to see exact values.")
-st.info("⏳On-chain data retrieval may take a few moments. If the APIs are slow, please wait.")
+st.title("📊 Ink Chain Stats")
 
 # --- Sidebar Footer Slightly Left-Aligned (same style as before) ----------------------------------------------------
 st.sidebar.markdown(
@@ -46,8 +44,8 @@ st.sidebar.markdown(
 
     <div class="sidebar-footer">
         <div>
-            <a href="https://x.com/axelar" target="_blank">
-                <img src="https://img.cryptorank.io/coins/axelar1663924228506.png" alt="Axelar Logo">
+            <a href="https://x.com/inkonchain" target="_blank">
+                <img src="https://explorer.inkonchain.com/favicon.ico" alt="Ink Logo">
                 Powered by Axelar
             </a>
         </div>
