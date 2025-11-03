@@ -92,7 +92,6 @@ conn = snowflake.connector.connect(
 )
 # --- Contracts KPIs Section ------------------------------------------------------------------------------------------
 st.markdown("---")
-st.subheader("📈 Smart Contracts Overview")
 
 # API Endpoint
 api_url = "https://explorer.inkonchain.com/stats-service/api/v1/pages/contracts"
