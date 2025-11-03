@@ -340,7 +340,7 @@ if not df_daily.empty:
     # apply purple color and hover formatting
     fig.update_traces(marker_color="#7132f5", hovertemplate="Date: %{x|%Y-%m-%d}<br>Txns: %{y:,}")
     fig.update_layout(
-        title_x=0.5,
+        title_x=0,
         margin=dict(l=20, r=20, t=60, b=40),
         xaxis=dict(tickformat="%b %d"),
         yaxis=dict(tickformat=",")
