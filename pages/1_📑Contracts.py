@@ -190,7 +190,7 @@ with col4:
 # -------------------------------------------------------------------------------------------------------
 # --- Dune API Section ----------------------------------------------------------------------------------
 st.markdown("---")
-st.subheader("📊 Contracts Analysis (Dune Data)")
+st.subheader("💻 Contracts Analysis")
 
 dune_api_url = "https://api.dune.com/api/v1/query/6178301/results?api_key=kmCBMTxWKBxn6CVgCXhwDvcFL1fBp6rO"
 
