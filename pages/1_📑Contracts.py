@@ -229,7 +229,7 @@ with col1:
 
     # Total Contracts Line
     fig1.add_trace(go.Scatter(
-        x=df["Date"], y=df["Total Contracts"], name="Total Contracts", mode="lines+markers",
+        x=df["Date"], y=df["Total Contracts"], name="Total Contracts", mode="lines",
         line=dict(color="#222", width=2)
     ))
 
@@ -248,7 +248,7 @@ with col2:
     fig2 = go.Figure()
     fig2.add_trace(go.Scatter(
         x=df["Date"], y=df["Transaction per Contract"], name="Transaction per Contract",
-        mode="lines+markers", line=dict(width=2)
+        mode="lines", line=dict(width=2)
     ))
     fig2.add_trace(go.Scatter(
         x=df["Date"], y=df["User per Contract"], name="User per Contract",
