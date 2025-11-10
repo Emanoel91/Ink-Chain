@@ -18,20 +18,52 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --- Builder Info ------------------------------------------------------------------------
-
+# --- Description Box (same color tone as logo) ---
 st.markdown(
     """
-    <div style="margin-top: 20px; margin-bottom: 20px; font-size: 16px;">
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <img src="https://pbs.twimg.com/profile_images/1841479747332608000/bindDGZQ_400x400.jpg" alt="Eman Raz" style="width:25px; height:25px; border-radius: 50%;">
-            <span>Built by: <a href="https://x.com/0xeman_raz" target="_blank">Eman Raz</a></span>
-        </div>
+    <div style="
+        background-color: #E5F2FF;
+        border-left: 6px solid #4A90E2;
+        padding: 15px;
+        border-radius: 10px;
+        margin-top: 10px;
+        color: #1a1a1a;
+        font-size: 16px;
+        line-height: 1.6;
+    ">
+        <b>Ink</b> is a layer 2 blockchain built on the <b>Optimism Superchain</b>, focusing on providing fast, secure, and interoperable financial solutions. 
+        With features such as low gas fees, sub-second transaction speeds, and Kraken's security support, Ink aims to offer developers a robust environment for building DeFi applications.
     </div>
     """,
     unsafe_allow_html=True
 )
 
+# --- Builder Info ------------------------------------------------------------------------
+st.markdown(
+    """
+    <div style="margin-top: 25px; font-size: 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <img src="https://pbs.twimg.com/profile_images/1841479747332608000/bindDGZQ_400x400.jpg" alt="Eman Raz" style="width:25px; height:25px; border-radius: 50%;">
+            <span>Built by: <a href="https://x.com/0xeman_raz" target="_blank">Eman Raz</a></span>
+        </div>
+    </div>
+
+    <!-- Support / Tips Box -->
+    <div style="
+        background-color: #F5F5F5;
+        border-left: 5px solid #888;
+        padding: 12px;
+        border-radius: 10px;
+        margin-top: 10px;
+        font-size: 15px;
+        color: #333;
+    ">
+        🎁 <b>Support / Tips:</b><br>
+        <code>0xD61338FD377816538a1E17eeA18D49512a37719a</code>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # --- Sidebar Footer Slightly Left-Aligned ---
 st.sidebar.markdown(
@@ -43,7 +75,7 @@ st.sidebar.markdown(
         width: 250px;
         font-size: 13px;
         color: gray;
-        margin-left: 5px; # -- MOVE LEFT
+        margin-left: 5px; /* Move slightly left */
         text-align: left;  
     }
     .sidebar-footer img {
