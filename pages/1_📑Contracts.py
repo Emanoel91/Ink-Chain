@@ -252,7 +252,7 @@ with col2:
     ))
     fig2.add_trace(go.Scatter(
         x=df["Date"], y=df["User per Contract"], name="User per Contract",
-        mode="lines+markers", line=dict(width=2, dash="dot")
+        mode="lines", line=dict(width=2, dash="dot")
     ))
 
     fig2.update_layout(
@@ -299,6 +299,6 @@ with col4:
     fig4 = px.line(
         df, x="Date", y="New Contracts Ratio", title="New Contracts Ratio Over Time"
     )
-    fig4.update_traces(mode="lines+markers")
+    fig4.update_traces(mode="lines")
     fig4.update_layout(template="plotly_white")
     st.plotly_chart(fig4, use_container_width=True)
