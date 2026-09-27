@@ -43,7 +43,7 @@ st.markdown(
     """
     <div style="margin-top: 25px; font-size: 16px;">
         <div style="display: flex; align-items: center; gap: 10px;">
-            <img src="https://pbs.twimg.com/profile_images/1841479747332608000/bindDGZQ_400x400.jpg" alt="Eman Raz" style="width:25px; height:25px; border-radius: 50%;">
+            <img src="https://pbs.twimg.com/profile_images/2060406047391559681/sA9zPNKM_400x400.jpg" alt="Eman Raz" style="width:25px; height:25px; border-radius: 50%;">
             <span>Built by: <a href="https://x.com/0xeman_raz" target="_blank">Eman Raz</a></span>
         </div>
     </div>
@@ -95,12 +95,12 @@ st.sidebar.markdown(
         <div>
             <a href="https://x.com/inkonchain" target="_blank">
                 <img src="https://img.cryptorank.io/coins/ink1729850762329.png" alt="Ink Logo">
-                Powered by Axelar
+                Powered by Ink
             </a>
         </div>
         <div style="margin-top: 5px;">
             <a href="https://x.com/0xeman_raz" target="_blank">
-                <img src="https://pbs.twimg.com/profile_images/1841479747332608000/bindDGZQ_400x400.jpg" alt="Eman Raz">
+                <img src="https://pbs.twimg.com/profile_images/2060406047391559681/sA9zPNKM_400x400.jpg" alt="Eman Raz">
                 Built by Eman Raz
             </a>
         </div>
