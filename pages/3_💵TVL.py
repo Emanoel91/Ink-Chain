@@ -62,6 +62,18 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
+# Categories DefiLlama tracks but explicitly does NOT count toward a chain's headline TVL
+# (stated on the category/protocol pages themselves, e.g. "Onchain Capital Allocator protocols
+# are not counted into Chain TVL", "Risk Curators protocols are not counted into Chain TVL"),
+# plus the two categories documented in DefiLlama's public methodology (Liquid Staking, Bridge).
+# This list may not be fully exhaustive of every future category DefiLlama excludes.
+EXCLUDED_FROM_CHAIN_TVL = {
+    "Liquid Staking",
+    "Bridge",
+    "Onchain Capital Allocator",
+    "Risk Curators",
+}
+
 # ============================================================
 # --- Title with Logo ---
 # ============================================================
@@ -89,7 +101,7 @@ line-height: 1.6;
 ">
 This page tracks <b>Total Value Locked (TVL)</b> on the <b>Ink</b> chain — the aggregate capital
 deposited in DeFi protocols on Ink — including historical trend, TVL by category, and a
-protocol-level breakdown. 
+protocol-level breakdown. Data is sourced live from the <b>DefiLlama</b> free public API.
 </div>
 """,
     unsafe_allow_html=True
@@ -156,6 +168,7 @@ def get_protocols_on_chain(chain: str) -> pd.DataFrame:
             lambda r: round(r["Mcap"] / r["TVL"], 2) if r["Mcap"] and r["TVL"] else None,
             axis=1
         )
+        df["Counted in Chain TVL"] = ~df["Category"].isin(EXCLUDED_FROM_CHAIN_TVL)
         df = df.sort_values("TVL", ascending=False).reset_index(drop=True)
     return df
 
@@ -213,9 +226,18 @@ total_defi_tvl = chains_df["tvl"].sum()
 dominance = (current_tvl / total_defi_tvl * 100) if total_defi_tvl else None
 
 num_protocols = protocols_df.shape[0]
-top_protocol = protocols_df.iloc[0]["Protocol"] if not protocols_df.empty else "N/A"
-top_protocol_tvl = protocols_df.iloc[0]["TVL"] if not protocols_df.empty else 0
-top_protocol_share = (top_protocol_tvl / current_tvl * 100) if current_tvl else None
+num_excluded = int((~protocols_df["Counted in Chain TVL"]).sum()) if not protocols_df.empty else 0
+
+# Protocols DefiLlama actually counts toward the chain's headline TVL (excludes categories
+# like Liquid Staking, Bridge, Onchain Capital Allocator, Risk Curators — see note above).
+# Summing just these should reconcile closely with current_tvl from historicalChainTvl.
+counted_df = protocols_df[protocols_df["Counted in Chain TVL"]] if not protocols_df.empty else protocols_df
+protocols_tvl_sum = counted_df["TVL"].sum() if not counted_df.empty else 0
+
+top_protocol = counted_df.iloc[0]["Protocol"] if not counted_df.empty else "N/A"
+top_protocol_tvl = counted_df.iloc[0]["TVL"] if not counted_df.empty else 0
+top_protocol_share = (top_protocol_tvl / protocols_tvl_sum * 100) if protocols_tvl_sum else None
+reconciliation_ratio = (protocols_tvl_sum / current_tvl * 100) if current_tvl else None
 
 
 def fmt_usd(x):
@@ -257,12 +279,25 @@ c8.metric("DeFi TVL Dominance", fmt_pct(dominance) if dominance is not None else
 st.markdown(
     f"""
 <div style="font-size:14px; color:#555; margin-top:-5px;">
-Top protocol by TVL: <b>{top_protocol}</b> — {fmt_usd(top_protocol_tvl)}
-({fmt_pct(top_protocol_share)} of chain TVL)
+Top protocol counted toward Chain TVL: <b>{top_protocol}</b> — {fmt_usd(top_protocol_tvl)}
+({fmt_pct(top_protocol_share)} of the {fmt_usd(protocols_tvl_sum)} summed across protocols
+DefiLlama counts toward Ink's Chain TVL — {fmt_pct(reconciliation_ratio - 100 if reconciliation_ratio is not None else None)}
+vs. the headline Total TVL KPI, a normal small gap)
 </div>
 """,
     unsafe_allow_html=True
 )
+
+if num_excluded > 0:
+    st.info(
+        f"ℹ️ {num_excluded} protocol(s) on Ink belong to categories DefiLlama tracks but "
+        f"explicitly excludes from a chain's headline TVL — e.g. **Liquid Staking**, "
+        f"**Bridge**, **Onchain Capital Allocator**, and **Risk Curators** protocols (this is "
+        f"stated on each such protocol's own DefiLlama page, e.g. \"Onchain Capital Allocator "
+        f"protocols are not counted into Chain TVL\"). All KPIs, charts, and the top-10 list "
+        f"above use only the protocols DefiLlama does count. The full table below still lists "
+        f"every protocol, with a **Counted in Chain TVL** column, so nothing is hidden."
+    )
 
 st.markdown("---")
 
@@ -281,8 +316,8 @@ fig_tvl = go.Figure()
 fig_tvl.add_trace(go.Scatter(
     x=plot_df["date"], y=plot_df["tvl"],
     mode="lines", fill="tozeroy",
-    line=dict(color=ACCENT, width=2),
-    fillcolor="rgba(74,144,226,0.15)",
+    line=dict(color="#7132f5", width=2),
+    fillcolor="rgba(113,50,245,0.15)",
     name="TVL"
 ))
 fig_tvl.update_layout(
@@ -297,6 +332,20 @@ st.plotly_chart(fig_tvl, use_container_width=True)
 
 st.markdown("---")
 
+include_excluded = st.checkbox(
+    "Also include categories DefiLlama excludes from headline Chain TVL "
+    "(Liquid Staking, Bridge, Onchain Capital Allocator, Risk Curators)",
+    value=False
+)
+chart_source_df = protocols_df if include_excluded else counted_df
+
+st.caption(
+    "By default, the charts and table below use only the protocols DefiLlama counts toward "
+    "Ink's headline Chain TVL — matching the KPIs above and defillama.com/chain/Ink. "
+    "Tick the box to also see vault/curator/liquid-staking protocols, which are real TVL but "
+    "excluded from the chain total to avoid double-counting."
+)
+
 # ============================================================
 # --- TVL by Category & Top Protocols ---
 # ============================================================
@@ -304,8 +353,8 @@ col_left, col_right = st.columns(2)
 
 with col_left:
     st.subheader("TVL by Category")
-    if not protocols_df.empty:
-        cat_df = protocols_df.groupby("Category", as_index=False)["TVL"].sum().sort_values("TVL", ascending=False)
+    if not chart_source_df.empty:
+        cat_df = chart_source_df.groupby("Category", as_index=False)["TVL"].sum().sort_values("TVL", ascending=False)
         fig_cat = px.pie(cat_df, names="Category", values="TVL", hole=0.5)
         fig_cat.update_traces(textposition="inside", textinfo="percent+label")
         fig_cat.update_layout(height=420, margin=dict(l=10, r=10, t=10, b=10), showlegend=True)
@@ -315,8 +364,8 @@ with col_left:
 
 with col_right:
     st.subheader("Top 10 Protocols by TVL")
-    if not protocols_df.empty:
-        top10 = protocols_df.head(10).sort_values("TVL")
+    if not chart_source_df.empty:
+        top10 = chart_source_df.sort_values("TVL", ascending=False).head(10).sort_values("TVL")
         fig_top = go.Figure(go.Bar(
             x=top10["TVL"], y=top10["Protocol"],
             orientation="h",
@@ -343,14 +392,16 @@ st.subheader("Protocols on Ink — Full List")
 
 if not protocols_df.empty:
     search = st.text_input("Search protocol", "")
-    table_df = protocols_df.copy()
+    table_df = chart_source_df.copy()
     if search:
         table_df = table_df[table_df["Protocol"].str.contains(search, case=False, na=False)]
 
     display_df = table_df[[
-        "Protocol", "Category", "TVL", "Change 1d (%)", "Change 7d (%)", "Mcap/TVL"
-    ]].copy()
-    display_df["TVL"] = display_df["TVL"].apply(fmt_usd)
+        "Protocol", "Category", "TVL", "Counted in Chain TVL",
+        "Change 1d (%)", "Change 7d (%)", "Mcap/TVL"
+    ]].rename(columns={"TVL": "TVL on Ink"}).copy()
+    display_df["TVL on Ink"] = display_df["TVL on Ink"].apply(fmt_usd)
+    display_df["Counted in Chain TVL"] = display_df["Counted in Chain TVL"].map({True: "Yes", False: "No"})
     display_df["Change 1d (%)"] = display_df["Change 1d (%)"].apply(
         lambda x: f"{x:+.2f}%" if pd.notnull(x) else "N/A"
     )
@@ -360,7 +411,14 @@ if not protocols_df.empty:
     display_df["Mcap/TVL"] = display_df["Mcap/TVL"].apply(lambda x: x if pd.notnull(x) else "N/A")
 
     st.dataframe(display_df, use_container_width=True, hide_index=True)
-    st.caption(f"{len(display_df)} protocols shown.")
+    st.caption(
+        f"{len(display_df)} protocols shown. \"TVL on Ink\" is each protocol's own reported "
+        "TVL on this chain (matches its DefiLlama protocol page). \"Counted in Chain TVL\" "
+        "marks whether DefiLlama includes that protocol in Ink's headline Total TVL figure "
+        "— protocols marked \"No\" (e.g. vaults, curators, liquid-staking) are real TVL that "
+        "DefiLlama tracks separately to avoid double-counting with the protocols they deposit "
+        "into."
+    )
 else:
     st.info("No protocol-level data available for Ink at this time.")
 
