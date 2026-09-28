@@ -59,7 +59,7 @@ st.markdown(
         color: #333;
     ">
         🎁 <b>Support / Tips:</b><br>
-        <code>0xD61338FD377816538a1E17eeA18D49512a37719a</code>
+        <code>0x621bd661e3d57da1c8237209824827f1027abf62</code>
     </div>
     """,
     unsafe_allow_html=True
