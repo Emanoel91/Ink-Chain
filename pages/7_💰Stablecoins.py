@@ -18,6 +18,49 @@ CHAIN_NAME = "Ink"          # exact chain key as used by DefiLlama
 ACCENT = "#4A90E2"
 BOX_BG = "#E5F2FF"
 
+# --- Sidebar Footer Slightly Left-Aligned ---
+st.sidebar.markdown(
+    """
+    <style>
+    .sidebar-footer {
+        position: fixed;
+        bottom: 20px;
+        width: 250px;
+        font-size: 13px;
+        color: gray;
+        margin-left: 5px; /* Move slightly left */
+        text-align: left;  
+    }
+    .sidebar-footer img {
+        width: 16px;
+        height: 16px;
+        vertical-align: middle;
+        border-radius: 50%;
+        margin-right: 5px;
+    }
+    .sidebar-footer a {
+        color: gray;
+        text-decoration: none;
+    }
+    </style>
+
+    <div class="sidebar-footer">
+        <div>
+            <a href="https://x.com/inkonchain" target="_blank">
+                <img src="https://img.cryptorank.io/coins/ink1729850762329.png" alt="Ink Logo">
+                Powered by Ink
+            </a>
+        </div>
+        <div style="margin-top: 5px;">
+            <a href="https://x.com/0xeman_raz" target="_blank">
+                <img src="https://pbs.twimg.com/profile_images/2060406047391559681/sA9zPNKM_400x400.jpg" alt="Eman Raz">
+                Built by Eman Raz
+            </a>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 # ============================================================
 # --- Title with Logo ---
 # ============================================================
