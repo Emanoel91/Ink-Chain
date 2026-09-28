@@ -18,6 +18,24 @@ CHAIN_NAME = "Ink"          # exact chain key as used by DefiLlama
 ACCENT = "#4A90E2"
 BOX_BG = "#E5F2FF"
 
+# Purple spectrum built around #7132f5 (dark → light), used for the TVL-by-Category chart.
+PURPLE_SPECTRUM = [
+    "#4a0fb8", "#5a1ed1", "#7132f5", "#8a54f7", "#a377f9",
+    "#bc9afb", "#d5bdfd", "#e2cffe", "#ede1fe", "#f5eefe",
+]
+
+# Categories DefiLlama tracks but explicitly does NOT count toward a chain's headline TVL
+# (stated on the category/protocol pages themselves, e.g. "Onchain Capital Allocator protocols
+# are not counted into Chain TVL", "Risk Curators protocols are not counted into Chain TVL"),
+# plus the two categories documented in DefiLlama's public methodology (Liquid Staking, Bridge).
+# This list may not be fully exhaustive of every future category DefiLlama excludes.
+EXCLUDED_FROM_CHAIN_TVL = {
+    "Liquid Staking",
+    "Bridge",
+    "Onchain Capital Allocator",
+    "Risk Curators",
+}
+
 # --- Sidebar Footer Slightly Left-Aligned ---
 st.sidebar.markdown(
     """
@@ -61,19 +79,6 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True
 )
-
-# Categories DefiLlama tracks but explicitly does NOT count toward a chain's headline TVL
-# (stated on the category/protocol pages themselves, e.g. "Onchain Capital Allocator protocols
-# are not counted into Chain TVL", "Risk Curators protocols are not counted into Chain TVL"),
-# plus the two categories documented in DefiLlama's public methodology (Liquid Staking, Bridge).
-# This list may not be fully exhaustive of every future category DefiLlama excludes.
-EXCLUDED_FROM_CHAIN_TVL = {
-    "Liquid Staking",
-    "Bridge",
-    "Onchain Capital Allocator",
-    "Risk Curators",
-}
-
 # ============================================================
 # --- Title with Logo ---
 # ============================================================
@@ -355,7 +360,10 @@ with col_left:
     st.subheader("TVL by Category")
     if not chart_source_df.empty:
         cat_df = chart_source_df.groupby("Category", as_index=False)["TVL"].sum().sort_values("TVL", ascending=False)
-        fig_cat = px.pie(cat_df, names="Category", values="TVL", hole=0.5)
+        fig_cat = px.pie(
+            cat_df, names="Category", values="TVL", hole=0.5,
+            color_discrete_sequence=PURPLE_SPECTRUM
+        )
         fig_cat.update_traces(textposition="inside", textinfo="percent+label")
         fig_cat.update_layout(height=420, margin=dict(l=10, r=10, t=10, b=10), showlegend=True)
         st.plotly_chart(fig_cat, use_container_width=True)
@@ -369,7 +377,7 @@ with col_right:
         fig_top = go.Figure(go.Bar(
             x=top10["TVL"], y=top10["Protocol"],
             orientation="h",
-            marker_color=ACCENT,
+            marker_color="#7132f5",
             text=[fmt_usd(v) for v in top10["TVL"]],
             textposition="outside"
         ))
