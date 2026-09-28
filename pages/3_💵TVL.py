@@ -63,7 +63,8 @@ line-height: 1.6;
 ">
 This page tracks <b>Total Value Locked (TVL)</b> on the <b>Ink</b> chain — the aggregate capital
 deposited in DeFi protocols on Ink — including historical trend, TVL by category, and a
-protocol-level breakdown. Data is sourced live from the <b>DefiLlama</b> free public API.
+protocol-level breakdown. Data is sourced live from a free public on-chain analytics API
+(no login or API key required).
 </div>
 """,
     unsafe_allow_html=True
@@ -72,7 +73,7 @@ protocol-level breakdown. Data is sourced live from the <b>DefiLlama</b> free pu
 st.markdown("")
 
 # ============================================================
-# --- Data Fetchers (DefiLlama free API) ---
+# --- Data Fetchers (free public on-chain analytics API) ---
 # ============================================================
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -155,12 +156,12 @@ def pct_change(df: pd.DataFrame, days: int):
 # --- Load Data ---
 # ============================================================
 try:
-    with st.spinner("Loading TVL data from DefiLlama..."):
+    with st.spinner("Loading TVL data..."):
         hist_df = get_historical_chain_tvl(CHAIN_NAME)
         chains_df = get_all_chains_tvl()
         protocols_df = get_protocols_on_chain(CHAIN_NAME)
 except Exception as e:
-    st.error(f"Failed to fetch data from DefiLlama API: {e}")
+    st.error(f"Failed to fetch TVL data: {e}")
     st.stop()
 
 if hist_df.empty:
@@ -243,7 +244,7 @@ st.markdown(
 <div style="font-size:14px; color:#555; margin-top:-5px;">
 Top protocol counted toward Chain TVL: <b>{top_protocol}</b> — {fmt_usd(top_protocol_tvl)}
 ({fmt_pct(top_protocol_share)} of the {fmt_usd(protocols_tvl_sum)} summed across protocols
-DefiLlama counts toward Ink's Chain TVL — {fmt_pct(reconciliation_ratio - 100 if reconciliation_ratio is not None else None)}
+counted toward Ink's Chain TVL — {fmt_pct(reconciliation_ratio - 100 if reconciliation_ratio is not None else None)}
 vs. the headline Total TVL KPI, a normal small gap)
 </div>
 """,
@@ -252,12 +253,12 @@ vs. the headline Total TVL KPI, a normal small gap)
 
 if num_excluded > 0:
     st.info(
-        f"ℹ️ {num_excluded} protocol(s) on Ink belong to categories DefiLlama tracks but "
-        f"explicitly excludes from a chain's headline TVL — e.g. **Liquid Staking**, "
+        f"ℹ️ {num_excluded} protocol(s) on Ink belong to categories that are tracked but "
+        f"explicitly excluded from a chain's headline TVL — e.g. **Liquid Staking**, "
         f"**Bridge**, **Onchain Capital Allocator**, and **Risk Curators** protocols (this is "
-        f"stated on each such protocol's own DefiLlama page, e.g. \"Onchain Capital Allocator "
+        f"stated on each such protocol's own page, e.g. \"Onchain Capital Allocator "
         f"protocols are not counted into Chain TVL\"). All KPIs, charts, and the top-10 list "
-        f"above use only the protocols DefiLlama does count. The full table below still lists "
+        f"above use only the protocols that are counted. The full table below still lists "
         f"every protocol, with a **Counted in Chain TVL** column, so nothing is hidden."
     )
 
@@ -266,8 +267,6 @@ st.markdown("---")
 # ============================================================
 # --- Historical TVL Chart (with range selector) ---
 # ============================================================
-st.subheader("Historical TVL")
-
 range_map = {"7D": 7, "30D": 30, "90D": 90, "180D": 180, "1Y": 365, "All": None}
 range_choice = st.radio("Range", list(range_map.keys()), horizontal=True, index=5, label_visibility="collapsed")
 
@@ -283,8 +282,9 @@ fig_tvl.add_trace(go.Scatter(
     name="TVL"
 ))
 fig_tvl.update_layout(
+    title="Historical TVL",
     height=420,
-    margin=dict(l=10, r=10, t=10, b=10),
+    margin=dict(l=10, r=10, t=50, b=10),
     yaxis_title="TVL (USD)",
     xaxis_title=None,
     hovermode="x unified",
@@ -295,17 +295,17 @@ st.plotly_chart(fig_tvl, use_container_width=True)
 st.markdown("---")
 
 include_excluded = st.checkbox(
-    "Also include categories DefiLlama excludes from headline Chain TVL "
+    "Also include categories excluded from headline Chain TVL "
     "(Liquid Staking, Bridge, Onchain Capital Allocator, Risk Curators)",
     value=False
 )
 chart_source_df = protocols_df if include_excluded else counted_df
 
 st.caption(
-    "By default, the charts and table below use only the protocols DefiLlama counts toward "
-    "Ink's headline Chain TVL — matching the KPIs above and defillama.com/chain/Ink. "
-    "Tick the box to also see vault/curator/liquid-staking protocols, which are real TVL but "
-    "excluded from the chain total to avoid double-counting."
+    "By default, the charts and table below use only the protocols counted toward "
+    "Ink's headline Chain TVL, matching the KPIs above. Tick the box to also see "
+    "vault/curator/liquid-staking protocols, which are real TVL but excluded from the "
+    "chain total to avoid double-counting."
 )
 
 # ============================================================
@@ -314,21 +314,20 @@ st.caption(
 col_left, col_right = st.columns(2)
 
 with col_left:
-    st.subheader("TVL by Category")
     if not chart_source_df.empty:
         cat_df = chart_source_df.groupby("Category", as_index=False)["TVL"].sum().sort_values("TVL", ascending=False)
         fig_cat = px.pie(
             cat_df, names="Category", values="TVL", hole=0.5,
-            color_discrete_sequence=PURPLE_SPECTRUM
+            color_discrete_sequence=PURPLE_SPECTRUM,
+            title="TVL by Category"
         )
         fig_cat.update_traces(textposition="inside", textinfo="percent+label")
-        fig_cat.update_layout(height=420, margin=dict(l=10, r=10, t=10, b=10), showlegend=True)
+        fig_cat.update_layout(height=420, margin=dict(l=10, r=10, t=50, b=10), showlegend=True)
         st.plotly_chart(fig_cat, use_container_width=True)
     else:
         st.info("No protocol-level data available.")
 
 with col_right:
-    st.subheader("Top 10 Protocols by TVL")
     if not chart_source_df.empty:
         top10 = chart_source_df.sort_values("TVL", ascending=False).head(10).sort_values("TVL")
         fig_top = go.Figure(go.Bar(
@@ -339,8 +338,9 @@ with col_right:
             textposition="outside"
         ))
         fig_top.update_layout(
+            title="Top 10 Protocols by TVL",
             height=420,
-            margin=dict(l=10, r=10, t=10, b=10),
+            margin=dict(l=10, r=10, t=50, b=10),
             xaxis_title="TVL (USD)",
             yaxis_title=None
         )
@@ -353,8 +353,6 @@ st.markdown("---")
 # ============================================================
 # --- Row: TVL by Category (bar chart + table) ---
 # ============================================================
-col_cat_chart, col_cat_table = st.columns(2)
-
 if not chart_source_df.empty:
     cat_bar_df = chart_source_df.groupby("Category", as_index=False)["TVL"].sum().sort_values("TVL", ascending=False)
     cat_total = cat_bar_df["TVL"].sum()
@@ -362,10 +360,12 @@ if not chart_source_df.empty:
 else:
     cat_bar_df = pd.DataFrame(columns=["Category", "TVL", "Share (%)"])
 
+log_scale_cat = st.checkbox("Log scale (category chart)", value=False, key="cat_log_scale")
+
+col_cat_chart, col_cat_table = st.columns(2)
+
 with col_cat_chart:
-    st.subheader("TVL by Category")
     if not cat_bar_df.empty:
-        log_scale_cat = st.checkbox("Log scale", value=False, key="cat_log_scale")
         fig_cat_bar = go.Figure(go.Bar(
             x=cat_bar_df["Category"], y=cat_bar_df["TVL"],
             marker_color="#7132f5",
@@ -373,8 +373,9 @@ with col_cat_chart:
             textposition="outside"
         ))
         fig_cat_bar.update_layout(
+            title="TVL by Category",
             height=420,
-            margin=dict(l=10, r=10, t=10, b=10),
+            margin=dict(l=10, r=10, t=50, b=10),
             yaxis_title="TVL (USD)",
             yaxis_type="log" if log_scale_cat else "linear",
             xaxis_title=None,
@@ -385,26 +386,25 @@ with col_cat_chart:
         st.info("No protocol-level data available.")
 
 with col_cat_table:
-    st.subheader("TVL by Category — Breakdown")
     if not cat_bar_df.empty:
         cat_table_display = cat_bar_df.copy()
         cat_table_display["TVL"] = cat_table_display["TVL"].apply(fmt_usd)
         cat_table_display["Share (%)"] = cat_table_display["Share (%)"].apply(lambda x: f"{x:.2f}%")
-        st.dataframe(cat_table_display, use_container_width=True, hide_index=True, height=420)
+        row_height, header_height = 35, 38
+        table_height = header_height + row_height * len(cat_table_display)
+        st.dataframe(cat_table_display, use_container_width=True, hide_index=True, height=table_height)
     else:
         st.info("No protocol-level data available.")
 
 st.markdown("---")
 
 # ============================================================
-# --- Row: Top 10 Gainers (1d and 7d) ---
+# --- Row: Top Gainers (1d and 7d) — positive changes only, max 10 ---
 # ============================================================
-st.subheader("Top 10 Protocols — Biggest TVL Gains")
 col_gain_1d, col_gain_7d = st.columns(2)
 
 with col_gain_1d:
-    st.markdown("###### 1-Day Change")
-    gainers_1d = chart_source_df[chart_source_df["Change 1d (%)"].notna()].sort_values(
+    gainers_1d = chart_source_df[chart_source_df["Change 1d (%)"] > 0].sort_values(
         "Change 1d (%)", ascending=False
     ).head(10).sort_values("Change 1d (%)")
     if not gainers_1d.empty:
@@ -416,16 +416,16 @@ with col_gain_1d:
             textposition="outside"
         ))
         fig_g1.update_layout(
-            height=420, margin=dict(l=10, r=10, t=10, b=10),
+            title="Top Gainers — 1-Day TVL Change",
+            height=420, margin=dict(l=10, r=10, t=50, b=10),
             xaxis_title="Change 1d (%)", yaxis_title=None
         )
         st.plotly_chart(fig_g1, use_container_width=True)
     else:
-        st.info("No 1-day change data available.")
+        st.info("No protocols with a positive 1-day TVL change.")
 
 with col_gain_7d:
-    st.markdown("###### 7-Day Change")
-    gainers_7d = chart_source_df[chart_source_df["Change 7d (%)"].notna()].sort_values(
+    gainers_7d = chart_source_df[chart_source_df["Change 7d (%)"] > 0].sort_values(
         "Change 7d (%)", ascending=False
     ).head(10).sort_values("Change 7d (%)")
     if not gainers_7d.empty:
@@ -437,24 +437,23 @@ with col_gain_7d:
             textposition="outside"
         ))
         fig_g7.update_layout(
-            height=420, margin=dict(l=10, r=10, t=10, b=10),
+            title="Top Gainers — 7-Day TVL Change",
+            height=420, margin=dict(l=10, r=10, t=50, b=10),
             xaxis_title="Change 7d (%)", yaxis_title=None
         )
         st.plotly_chart(fig_g7, use_container_width=True)
     else:
-        st.info("No 7-day change data available.")
+        st.info("No protocols with a positive 7-day TVL change.")
 
 st.markdown("---")
 
 # ============================================================
-# --- Row: Top 10 Losers (1d and 7d) ---
+# --- Row: Top Losers (1d and 7d) — negative changes only, max 10 ---
 # ============================================================
-st.subheader("Top 10 Protocols — Biggest TVL Drops")
 col_loss_1d, col_loss_7d = st.columns(2)
 
 with col_loss_1d:
-    st.markdown("###### 1-Day Change")
-    losers_1d = chart_source_df[chart_source_df["Change 1d (%)"].notna()].sort_values(
+    losers_1d = chart_source_df[chart_source_df["Change 1d (%)"] < 0].sort_values(
         "Change 1d (%)", ascending=True
     ).head(10).sort_values("Change 1d (%)", ascending=False)
     if not losers_1d.empty:
@@ -466,16 +465,16 @@ with col_loss_1d:
             textposition="outside"
         ))
         fig_l1.update_layout(
-            height=420, margin=dict(l=10, r=10, t=10, b=10),
+            title="Top Losers — 1-Day TVL Change",
+            height=420, margin=dict(l=10, r=10, t=50, b=10),
             xaxis_title="Change 1d (%)", yaxis_title=None
         )
         st.plotly_chart(fig_l1, use_container_width=True)
     else:
-        st.info("No 1-day change data available.")
+        st.info("No protocols with a negative 1-day TVL change.")
 
 with col_loss_7d:
-    st.markdown("###### 7-Day Change")
-    losers_7d = chart_source_df[chart_source_df["Change 7d (%)"].notna()].sort_values(
+    losers_7d = chart_source_df[chart_source_df["Change 7d (%)"] < 0].sort_values(
         "Change 7d (%)", ascending=True
     ).head(10).sort_values("Change 7d (%)", ascending=False)
     if not losers_7d.empty:
@@ -487,12 +486,13 @@ with col_loss_7d:
             textposition="outside"
         ))
         fig_l7.update_layout(
-            height=420, margin=dict(l=10, r=10, t=10, b=10),
+            title="Top Losers — 7-Day TVL Change",
+            height=420, margin=dict(l=10, r=10, t=50, b=10),
             xaxis_title="Change 7d (%)", yaxis_title=None
         )
         st.plotly_chart(fig_l7, use_container_width=True)
     else:
-        st.info("No 7-day change data available.")
+        st.info("No protocols with a negative 7-day TVL change.")
 
 st.markdown("---")
 
@@ -524,11 +524,10 @@ if not protocols_df.empty:
     st.dataframe(display_df, use_container_width=True, hide_index=True)
     st.caption(
         f"{len(display_df)} protocols shown. \"TVL on Ink\" is each protocol's own reported "
-        "TVL on this chain (matches its DefiLlama protocol page). \"Counted in Chain TVL\" "
-        "marks whether DefiLlama includes that protocol in Ink's headline Total TVL figure "
-        "— protocols marked \"No\" (e.g. vaults, curators, liquid-staking) are real TVL that "
-        "DefiLlama tracks separately to avoid double-counting with the protocols they deposit "
-        "into."
+        "TVL on this chain. \"Counted in Chain TVL\" marks whether that protocol is included "
+        "in Ink's headline Total TVL figure — protocols marked \"No\" (e.g. vaults, curators, "
+        "liquid-staking) are real TVL that is tracked separately to avoid double-counting with "
+        "the protocols they deposit into."
     )
 else:
     st.info("No protocol-level data available for Ink at this time.")
