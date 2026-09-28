@@ -89,7 +89,7 @@ line-height: 1.6;
 ">
 This page tracks <b>Total Value Locked (TVL)</b> on the <b>Ink</b> chain — the aggregate capital
 deposited in DeFi protocols on Ink — including historical trend, TVL by category, and a
-protocol-level breakdown. Data is sourced live from the <b>DefiLlama</b> free public API.
+protocol-level breakdown. 
 </div>
 """,
     unsafe_allow_html=True
