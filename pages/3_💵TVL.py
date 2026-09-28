@@ -36,49 +36,6 @@ EXCLUDED_FROM_CHAIN_TVL = {
     "Risk Curators",
 }
 
-# --- Sidebar Footer Slightly Left-Aligned ---
-st.sidebar.markdown(
-    """
-    <style>
-    .sidebar-footer {
-        position: fixed;
-        bottom: 20px;
-        width: 250px;
-        font-size: 13px;
-        color: gray;
-        margin-left: 5px; /* Move slightly left */
-        text-align: left;  
-    }
-    .sidebar-footer img {
-        width: 16px;
-        height: 16px;
-        vertical-align: middle;
-        border-radius: 50%;
-        margin-right: 5px;
-    }
-    .sidebar-footer a {
-        color: gray;
-        text-decoration: none;
-    }
-    </style>
-
-    <div class="sidebar-footer">
-        <div>
-            <a href="https://x.com/inkonchain" target="_blank">
-                <img src="https://img.cryptorank.io/coins/ink1729850762329.png" alt="Ink Logo">
-                Powered by Ink
-            </a>
-        </div>
-        <div style="margin-top: 5px;">
-            <a href="https://x.com/0xeman_raz" target="_blank">
-                <img src="https://pbs.twimg.com/profile_images/2060406047391559681/sA9zPNKM_400x400.jpg" alt="Eman Raz">
-                Built by Eman Raz
-            </a>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 # ============================================================
 # --- Title with Logo ---
 # ============================================================
@@ -390,6 +347,152 @@ with col_right:
         st.plotly_chart(fig_top, use_container_width=True)
     else:
         st.info("No protocol-level data available.")
+
+st.markdown("---")
+
+# ============================================================
+# --- Row: TVL by Category (bar chart + table) ---
+# ============================================================
+col_cat_chart, col_cat_table = st.columns(2)
+
+if not chart_source_df.empty:
+    cat_bar_df = chart_source_df.groupby("Category", as_index=False)["TVL"].sum().sort_values("TVL", ascending=False)
+    cat_total = cat_bar_df["TVL"].sum()
+    cat_bar_df["Share (%)"] = cat_bar_df["TVL"] / cat_total * 100 if cat_total else 0
+else:
+    cat_bar_df = pd.DataFrame(columns=["Category", "TVL", "Share (%)"])
+
+with col_cat_chart:
+    st.subheader("TVL by Category")
+    if not cat_bar_df.empty:
+        log_scale_cat = st.checkbox("Log scale", value=False, key="cat_log_scale")
+        fig_cat_bar = go.Figure(go.Bar(
+            x=cat_bar_df["Category"], y=cat_bar_df["TVL"],
+            marker_color="#7132f5",
+            text=[fmt_usd(v) for v in cat_bar_df["TVL"]],
+            textposition="outside"
+        ))
+        fig_cat_bar.update_layout(
+            height=420,
+            margin=dict(l=10, r=10, t=10, b=10),
+            yaxis_title="TVL (USD)",
+            yaxis_type="log" if log_scale_cat else "linear",
+            xaxis_title=None,
+            xaxis_tickangle=-30
+        )
+        st.plotly_chart(fig_cat_bar, use_container_width=True)
+    else:
+        st.info("No protocol-level data available.")
+
+with col_cat_table:
+    st.subheader("TVL by Category — Breakdown")
+    if not cat_bar_df.empty:
+        cat_table_display = cat_bar_df.copy()
+        cat_table_display["TVL"] = cat_table_display["TVL"].apply(fmt_usd)
+        cat_table_display["Share (%)"] = cat_table_display["Share (%)"].apply(lambda x: f"{x:.2f}%")
+        st.dataframe(cat_table_display, use_container_width=True, hide_index=True, height=420)
+    else:
+        st.info("No protocol-level data available.")
+
+st.markdown("---")
+
+# ============================================================
+# --- Row: Top 10 Gainers (1d and 7d) ---
+# ============================================================
+st.subheader("Top 10 Protocols — Biggest TVL Gains")
+col_gain_1d, col_gain_7d = st.columns(2)
+
+with col_gain_1d:
+    st.markdown("###### 1-Day Change")
+    gainers_1d = chart_source_df[chart_source_df["Change 1d (%)"].notna()].sort_values(
+        "Change 1d (%)", ascending=False
+    ).head(10).sort_values("Change 1d (%)")
+    if not gainers_1d.empty:
+        fig_g1 = go.Figure(go.Bar(
+            x=gainers_1d["Change 1d (%)"], y=gainers_1d["Protocol"],
+            orientation="h",
+            marker_color="#22c55e",
+            text=[f"{v:+.2f}%" for v in gainers_1d["Change 1d (%)"]],
+            textposition="outside"
+        ))
+        fig_g1.update_layout(
+            height=420, margin=dict(l=10, r=10, t=10, b=10),
+            xaxis_title="Change 1d (%)", yaxis_title=None
+        )
+        st.plotly_chart(fig_g1, use_container_width=True)
+    else:
+        st.info("No 1-day change data available.")
+
+with col_gain_7d:
+    st.markdown("###### 7-Day Change")
+    gainers_7d = chart_source_df[chart_source_df["Change 7d (%)"].notna()].sort_values(
+        "Change 7d (%)", ascending=False
+    ).head(10).sort_values("Change 7d (%)")
+    if not gainers_7d.empty:
+        fig_g7 = go.Figure(go.Bar(
+            x=gainers_7d["Change 7d (%)"], y=gainers_7d["Protocol"],
+            orientation="h",
+            marker_color="#22c55e",
+            text=[f"{v:+.2f}%" for v in gainers_7d["Change 7d (%)"]],
+            textposition="outside"
+        ))
+        fig_g7.update_layout(
+            height=420, margin=dict(l=10, r=10, t=10, b=10),
+            xaxis_title="Change 7d (%)", yaxis_title=None
+        )
+        st.plotly_chart(fig_g7, use_container_width=True)
+    else:
+        st.info("No 7-day change data available.")
+
+st.markdown("---")
+
+# ============================================================
+# --- Row: Top 10 Losers (1d and 7d) ---
+# ============================================================
+st.subheader("Top 10 Protocols — Biggest TVL Drops")
+col_loss_1d, col_loss_7d = st.columns(2)
+
+with col_loss_1d:
+    st.markdown("###### 1-Day Change")
+    losers_1d = chart_source_df[chart_source_df["Change 1d (%)"].notna()].sort_values(
+        "Change 1d (%)", ascending=True
+    ).head(10).sort_values("Change 1d (%)", ascending=False)
+    if not losers_1d.empty:
+        fig_l1 = go.Figure(go.Bar(
+            x=losers_1d["Change 1d (%)"], y=losers_1d["Protocol"],
+            orientation="h",
+            marker_color="#ef4444",
+            text=[f"{v:+.2f}%" for v in losers_1d["Change 1d (%)"]],
+            textposition="outside"
+        ))
+        fig_l1.update_layout(
+            height=420, margin=dict(l=10, r=10, t=10, b=10),
+            xaxis_title="Change 1d (%)", yaxis_title=None
+        )
+        st.plotly_chart(fig_l1, use_container_width=True)
+    else:
+        st.info("No 1-day change data available.")
+
+with col_loss_7d:
+    st.markdown("###### 7-Day Change")
+    losers_7d = chart_source_df[chart_source_df["Change 7d (%)"].notna()].sort_values(
+        "Change 7d (%)", ascending=True
+    ).head(10).sort_values("Change 7d (%)", ascending=False)
+    if not losers_7d.empty:
+        fig_l7 = go.Figure(go.Bar(
+            x=losers_7d["Change 7d (%)"], y=losers_7d["Protocol"],
+            orientation="h",
+            marker_color="#ef4444",
+            text=[f"{v:+.2f}%" for v in losers_7d["Change 7d (%)"]],
+            textposition="outside"
+        ))
+        fig_l7.update_layout(
+            height=420, margin=dict(l=10, r=10, t=10, b=10),
+            xaxis_title="Change 7d (%)", yaxis_title=None
+        )
+        st.plotly_chart(fig_l7, use_container_width=True)
+    else:
+        st.info("No 7-day change data available.")
 
 st.markdown("---")
 
