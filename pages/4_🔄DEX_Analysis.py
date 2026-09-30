@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import requests
+import re
 from datetime import datetime, timedelta
 
 # ============================================================
@@ -17,50 +18,6 @@ st.set_page_config(
 CHAIN_NAME = "Ink"          # exact chain key as used by DefiLlama
 ACCENT = "#4A90E2"
 BOX_BG = "#E5F2FF"
-
-# --- Sidebar Footer Slightly Left-Aligned ---
-st.sidebar.markdown(
-    """
-    <style>
-    .sidebar-footer {
-        position: fixed;
-        bottom: 20px;
-        width: 250px;
-        font-size: 13px;
-        color: gray;
-        margin-left: 5px; /* Move slightly left */
-        text-align: left;  
-    }
-    .sidebar-footer img {
-        width: 16px;
-        height: 16px;
-        vertical-align: middle;
-        border-radius: 50%;
-        margin-right: 5px;
-    }
-    .sidebar-footer a {
-        color: gray;
-        text-decoration: none;
-    }
-    </style>
-
-    <div class="sidebar-footer">
-        <div>
-            <a href="https://x.com/inkonchain" target="_blank">
-                <img src="https://img.cryptorank.io/coins/ink1729850762329.png" alt="Ink Logo">
-                Powered by Ink
-            </a>
-        </div>
-        <div style="margin-top: 5px;">
-            <a href="https://x.com/0xeman_raz" target="_blank">
-                <img src="https://pbs.twimg.com/profile_images/2060406047391559681/sA9zPNKM_400x400.jpg" alt="Eman Raz">
-                Built by Eman Raz
-            </a>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 
 # ============================================================
 # --- Title with Logo ---
@@ -87,9 +44,10 @@ color: #1a1a1a;
 font-size: 16px;
 line-height: 1.6;
 ">
-This page tracks <b>spot DEX trading volume</b> on the <b>Ink</b> chain — daily swap activity,
-protocol-level rankings, and market share across all decentralized exchanges live on Ink.
-Data is sourced live from the <b>DefiLlama</b> free public API.
+This page tracks <b>spot DEX trading volume</b> on the <b>Ink</b> chain — swap activity over
+time, protocol-level rankings, and market share across all decentralized exchanges live on
+Ink. Different versions of the same exchange (e.g. Uniswap V3 / V4) are combined into one
+entry. Data is sourced live from the <b>DefiLlama</b> free public API.
 </div>
 """,
     unsafe_allow_html=True
@@ -128,30 +86,65 @@ if not chart_raw and not protocols:
     st.stop()
 
 # ============================================================
-# --- Build DataFrames ---
+# --- Build Daily Volume Chart DataFrame ---
 # ============================================================
 chart_df = pd.DataFrame(chart_raw, columns=["timestamp", "volume"])
 if not chart_df.empty:
     chart_df["date"] = pd.to_datetime(chart_df["timestamp"], unit="s")
     chart_df = chart_df.sort_values("date").reset_index(drop=True)
 
-rows = []
+
+def base_dex_name(name: str) -> str:
+    """Strip a trailing version tag (V2, V3, v4.1, (V3) ...) so different versions of the
+    same exchange (e.g. 'Uniswap V3' and 'Uniswap V4') collapse into one entry ('Uniswap')."""
+    if not name:
+        return name
+    cleaned = re.sub(r"\s*\(?[Vv]\d+(\.\d+)?\)?\s*$", "", name).strip()
+    return cleaned if cleaned else name
+
+
+# ============================================================
+# --- Build & Consolidate Protocol-Level DataFrame ---
+# ============================================================
+raw_rows = []
 for p in protocols:
-    rows.append({
+    raw_rows.append({
         "Protocol": p.get("displayName") or p.get("name"),
         "Category": p.get("category") or "Dexs",
         "Volume 24h": p.get("total24h") or 0,
+        "Volume 48h-24h": p.get("total48hto24h") or 0,
         "Volume 7d": p.get("total7d") or 0,
+        "Volume 14d-7d": p.get("total7dto14d") or p.get("total14dto7d") or 0,
         "Volume 30d": p.get("total30d") or 0,
-        "Change 1d (%)": p.get("change_1d"),
-        "Change 7d (%)": p.get("change_7d"),
-        "Change 1m (%)": p.get("change_1m"),
         "Chains": len(p.get("chains", []) or []),
         "Logo": p.get("logo"),
     })
-protocols_df = pd.DataFrame(rows)
-if not protocols_df.empty:
-    protocols_df = protocols_df.sort_values("Volume 24h", ascending=False).reset_index(drop=True)
+raw_df = pd.DataFrame(raw_rows)
+
+if not raw_df.empty:
+    raw_df["Base Protocol"] = raw_df["Protocol"].apply(base_dex_name)
+    grouped = raw_df.groupby("Base Protocol", as_index=False).agg({
+        "Category": "first",
+        "Volume 24h": "sum",
+        "Volume 48h-24h": "sum",
+        "Volume 7d": "sum",
+        "Volume 14d-7d": "sum",
+        "Volume 30d": "sum",
+        "Chains": "max",
+        "Logo": "first",
+    }).rename(columns={"Base Protocol": "Protocol"})
+
+    grouped["Change 1d (%)"] = grouped.apply(
+        lambda r: (r["Volume 24h"] - r["Volume 48h-24h"]) / r["Volume 48h-24h"] * 100
+        if r["Volume 48h-24h"] else None, axis=1
+    )
+    grouped["Change 7d (%)"] = grouped.apply(
+        lambda r: (r["Volume 7d"] - r["Volume 14d-7d"]) / r["Volume 14d-7d"] * 100
+        if r["Volume 14d-7d"] else None, axis=1
+    )
+    protocols_df = grouped.sort_values("Volume 24h", ascending=False).reset_index(drop=True)
+else:
+    protocols_df = raw_df
 
 # ============================================================
 # --- KPI Calculations ---
@@ -210,16 +203,33 @@ c7.metric("Top DEX Share (24h)", fmt_pct(top_dex_share))
 st.markdown("---")
 
 # ============================================================
-# --- Historical Daily Volume Chart (with range selector) ---
+# --- DEX Volume Over Time (timeframe + range selector) ---
 # ============================================================
-st.subheader("Daily DEX Volume")
-
 if not chart_df.empty:
+    timeframe = st.radio(
+        "Timeframe", ["Daily", "Weekly", "Monthly"], horizontal=True, index=0
+    )
+
+    if timeframe == "Weekly":
+        agg_df = (
+            chart_df.set_index("date")["volume"]
+            .resample("W-MON").sum()
+            .reset_index()
+        )
+    elif timeframe == "Monthly":
+        agg_df = (
+            chart_df.set_index("date")["volume"]
+            .resample("MS").sum()
+            .reset_index()
+        )
+    else:
+        agg_df = chart_df[["date", "volume"]].copy()
+
     range_map = {"7D": 7, "30D": 30, "90D": 90, "180D": 180, "1Y": 365, "All": None}
     range_choice = st.radio("Range", list(range_map.keys()), horizontal=True, index=5, label_visibility="collapsed")
 
     days = range_map[range_choice]
-    plot_df = chart_df if days is None else chart_df[chart_df["date"] >= (last_date - timedelta(days=days))]
+    plot_df = agg_df if days is None else agg_df[agg_df["date"] >= (last_date - timedelta(days=days))]
 
     fig_vol = go.Figure()
     fig_vol.add_trace(go.Bar(
@@ -228,8 +238,9 @@ if not chart_df.empty:
         name="Volume"
     ))
     fig_vol.update_layout(
+        title="DEX Volume Over Time",
         height=420,
-        margin=dict(l=10, r=10, t=10, b=10),
+        margin=dict(l=10, r=10, t=50, b=10),
         yaxis_title="Volume (USD)",
         xaxis_title=None,
         hovermode="x unified",
@@ -237,7 +248,7 @@ if not chart_df.empty:
     )
     st.plotly_chart(fig_vol, use_container_width=True)
 else:
-    st.info("No historical daily volume chart available for Ink.")
+    st.info("No historical volume chart available for Ink.")
 
 st.markdown("---")
 
@@ -247,13 +258,15 @@ st.markdown("---")
 col_left, col_right = st.columns(2)
 
 with col_left:
-    st.subheader("Market Share (7d Volume)")
     if not protocols_df.empty:
         share_df = protocols_df[protocols_df["Volume 7d"] > 0][["Protocol", "Volume 7d"]]
         if not share_df.empty:
-            fig_share = px.pie(share_df, names="Protocol", values="Volume 7d", hole=0.5)
+            fig_share = px.pie(
+                share_df, names="Protocol", values="Volume 7d", hole=0.5,
+                title="Market Share (7d Volume)"
+            )
             fig_share.update_traces(textposition="inside", textinfo="percent+label")
-            fig_share.update_layout(height=420, margin=dict(l=10, r=10, t=10, b=10), showlegend=True)
+            fig_share.update_layout(height=420, margin=dict(l=10, r=10, t=50, b=10), showlegend=True)
             st.plotly_chart(fig_share, use_container_width=True)
         else:
             st.info("No 7d volume data to compute market share.")
@@ -261,7 +274,6 @@ with col_left:
         st.info("No protocol-level data available.")
 
 with col_right:
-    st.subheader("Top 10 DEXs by 24h Volume")
     if not protocols_df.empty:
         top10 = protocols_df.head(10).sort_values("Volume 24h")
         fig_top = go.Figure(go.Bar(
@@ -272,8 +284,9 @@ with col_right:
             textposition="outside"
         ))
         fig_top.update_layout(
+            title="Top 10 DEXs by 24h Volume",
             height=420,
-            margin=dict(l=10, r=10, t=10, b=10),
+            margin=dict(l=10, r=10, t=50, b=10),
             xaxis_title="Volume 24h (USD)",
             yaxis_title=None
         )
@@ -309,7 +322,10 @@ if not protocols_df.empty:
     )
 
     st.dataframe(display_df, use_container_width=True, hide_index=True)
-    st.caption(f"{len(display_df)} DEX protocols shown.")
+    st.caption(
+        f"{len(display_df)} DEX protocols shown (versions of the same exchange, e.g. Uniswap "
+        "V3/V4, are combined into a single row)."
+    )
 else:
     st.info("No protocol-level data available for Ink at this time.")
 
