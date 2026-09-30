@@ -16,7 +16,7 @@ st.set_page_config(
 )
 
 CHAIN_NAME = "Ink"          # exact chain key as used by DefiLlama
-ACCENT = "#4A90E2"
+ACCENT = "#7132f5"
 BOX_BG = "#E5F2FF"
 
 # ============================================================
