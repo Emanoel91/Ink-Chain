@@ -120,6 +120,7 @@ for p in protocols:
         "Volume 7d": p.get("total7d") or 0,
         "Volume 14d-7d": p.get("total7dto14d") or p.get("total14dto7d") or 0,
         "Volume 30d": p.get("total30d") or 0,
+        "Total All Time": p.get("totalAllTime") or 0,
         "Chains": len(p.get("chains", []) or []),
         "Logo": p.get("logo"),
     })
@@ -134,6 +135,7 @@ if not raw_df.empty:
         "Volume 7d": "sum",
         "Volume 14d-7d": "sum",
         "Volume 30d": "sum",
+        "Total All Time": "sum",
         "Chains": "max",
         "Logo": "first",
     }).rename(columns={"Base Protocol": "Protocol"})
@@ -156,9 +158,6 @@ else:
 total_24h = data.get("total24h") or 0
 total_7d = data.get("total7d") or 0
 total_30d = data.get("total30d") or 0
-change_1d = data.get("change_1d")
-change_7d = data.get("change_7d")
-change_1m = data.get("change_1m")
 
 num_dexs = protocols_df.shape[0]
 top_dex = protocols_df.iloc[0]["Protocol"] if not protocols_df.empty else "N/A"
@@ -184,6 +183,51 @@ def fmt_pct(x):
     return "N/A" if x is None else f"{x:+.2f}%"
 
 
+def period_change(df: pd.DataFrame, n: int):
+    """% change between the sum of the last n daily candles and the sum of the n candles before them."""
+    if df.empty:
+        return None
+    vols = df["volume"].to_numpy()
+    if len(vols) < 2 * n:
+        return None
+    cur = vols[-n:].sum()
+    prev = vols[-2 * n:-n].sum()
+    return (cur - prev) / prev * 100 if prev else None
+
+
+def donut_chart(df: pd.DataFrame, col: str, title: str):
+    d = df[df[col] > 0][["Protocol", col]]
+    if d.empty:
+        return None
+    fig = px.pie(d, names="Protocol", values=col, hole=0.5, title=title)
+    fig.update_traces(textposition="inside", textinfo="percent+label")
+    fig.update_layout(height=420, margin=dict(l=10, r=10, t=50, b=10), showlegend=False)
+    return fig
+
+
+def volume_bar_chart(df: pd.DataFrame, col: str, title: str, axis_title: str):
+    d = df[df[col] > 0][["Protocol", col]].sort_values(col)   # largest at the top
+    if d.empty:
+        return None
+    fig = go.Figure(go.Bar(
+        x=d[col], y=d["Protocol"],
+        orientation="h",
+        marker_color=ACCENT,
+        text=[fmt_usd(v) for v in d[col]],
+        textposition="outside",
+        cliponaxis=False,
+    ))
+    fig.update_layout(
+        title=title,
+        height=max(320, 30 * len(d) + 110),
+        margin=dict(l=10, r=60, t=50, b=10),
+        xaxis_title=axis_title,
+        yaxis_title=None,
+        plot_bgcolor="white",
+    )
+    return fig
+
+
 # ============================================================
 # --- KPI Row 1 ---
 # ============================================================
@@ -191,10 +235,22 @@ last_date = chart_df.iloc[-1]["date"] if not chart_df.empty else datetime.utcnow
 st.markdown(f"##### As of {last_date.strftime('%Y-%m-%d')}")
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("DEX Volume (24h)", fmt_usd(total_24h), fmt_pct(change_1d))
-c2.metric("DEX Volume (7d)", fmt_usd(total_7d), fmt_pct(change_7d))
-c3.metric("DEX Volume (30d)", fmt_usd(total_30d), fmt_pct(change_1m))
+c1.metric("DEX Volume (24h)", fmt_usd(total_24h))
+c2.metric("DEX Volume (7d)", fmt_usd(total_7d))
+c3.metric("DEX Volume (30d)", fmt_usd(total_30d))
 c4.metric("Active DEXs", f"{num_dexs}")
+
+# ============================================================
+# --- KPI Row: Volume Change (computed from the daily chart) ---
+# ============================================================
+chg_24h = period_change(chart_df, 1)    # last candle vs previous candle
+chg_7d = period_change(chart_df, 7)     # sum of last 7 candles vs the 7 before
+chg_30d = period_change(chart_df, 30)   # sum of last 30 candles vs the 30 before
+
+k1, k2, k3 = st.columns(3)
+k1.metric("DEX Volume Change (24h)", fmt_pct(chg_24h))
+k2.metric("DEX Volume Change (7d)", fmt_pct(chg_7d))
+k3.metric("DEX Volume Change (30d)", fmt_pct(chg_30d))
 
 # ============================================================
 # --- KPI Row 2 ---
@@ -210,6 +266,8 @@ st.markdown("---")
 # --- DEX Volume Over Time (bars + cumulative line) ---
 # ============================================================
 if not chart_df.empty:
+    st.metric("Total DEX Volume (All Time)", fmt_usd(chart_df["volume"].sum()))
+
     timeframe = st.radio(
         "Timeframe", ["Daily", "Weekly", "Monthly", "Quarterly"], horizontal=True, index=0
     )
@@ -293,52 +351,65 @@ if not chart_df.empty:
         m4.caption("Complete months only")
     else:
         st.info("Not enough complete months of data to compute monthly statistics.")
+
+    # ========================================================
+    # --- Total Volume by DEX / Total DEX Share (only if all-time data exists) ---
+    # ========================================================
+    if (not protocols_df.empty and "Total All Time" in protocols_df.columns
+            and protocols_df["Total All Time"].sum() > 0):
+        t_left, t_right = st.columns(2)
+        with t_left:
+            fig_tv = volume_bar_chart(protocols_df, "Total All Time", "Total Volume by DEX", "Total Volume (USD)")
+            if fig_tv is not None:
+                st.plotly_chart(fig_tv, use_container_width=True)
+        with t_right:
+            fig_ts = donut_chart(protocols_df, "Total All Time", "Total DEX Share")
+            if fig_ts is not None:
+                st.plotly_chart(fig_ts, use_container_width=True)
 else:
     st.info("No historical volume chart available for Ink.")
 
 st.markdown("---")
 
 # ============================================================
-# --- Market Share & Top Protocols ---
+# --- Market Share (24h / 7d / 30d) ---
 # ============================================================
-col_left, col_right = st.columns(2)
+if not protocols_df.empty:
+    ms1, ms2, ms3 = st.columns(3)
+    for col_ui, col_name, ttl in [
+        (ms1, "Volume 24h", "Market Share (24h Volume)"),
+        (ms2, "Volume 7d", "Market Share (7d Volume)"),
+        (ms3, "Volume 30d", "Market Share (30d Volume)"),
+    ]:
+        with col_ui:
+            fig_ms = donut_chart(protocols_df, col_name, ttl)
+            if fig_ms is not None:
+                st.plotly_chart(fig_ms, use_container_width=True)
+            else:
+                st.info(f"No data for {ttl}.")
+else:
+    st.info("No protocol-level data available.")
 
-with col_left:
-    if not protocols_df.empty:
-        share_df = protocols_df[protocols_df["Volume 7d"] > 0][["Protocol", "Volume 7d"]]
-        if not share_df.empty:
-            fig_share = px.pie(
-                share_df, names="Protocol", values="Volume 7d", hole=0.5,
-                title="Market Share (7d Volume)"
-            )
-            fig_share.update_traces(textposition="inside", textinfo="percent+label")
-            fig_share.update_layout(height=420, margin=dict(l=10, r=10, t=50, b=10), showlegend=True)
-            st.plotly_chart(fig_share, use_container_width=True)
-        else:
-            st.info("No 7d volume data to compute market share.")
-    else:
-        st.info("No protocol-level data available.")
+st.markdown("---")
 
-with col_right:
-    if not protocols_df.empty:
-        top10 = protocols_df.head(10).sort_values("Volume 24h")
-        fig_top = go.Figure(go.Bar(
-            x=top10["Volume 24h"], y=top10["Protocol"],
-            orientation="h",
-            marker_color=ACCENT,
-            text=[fmt_usd(v) for v in top10["Volume 24h"]],
-            textposition="outside"
-        ))
-        fig_top.update_layout(
-            title="Top 10 DEXs by 24h Volume",
-            height=420,
-            margin=dict(l=10, r=10, t=50, b=10),
-            xaxis_title="Volume 24h (USD)",
-            yaxis_title=None
-        )
-        st.plotly_chart(fig_top, use_container_width=True)
-    else:
-        st.info("No protocol-level data available.")
+# ============================================================
+# --- DEXs by Volume (24h / 7d / 30d) ---
+# ============================================================
+if not protocols_df.empty:
+    bv1, bv2, bv3 = st.columns(3)
+    for col_ui, col_name, ttl in [
+        (bv1, "Volume 24h", "DEXs by 24h Volume"),
+        (bv2, "Volume 7d", "DEXs by 7d Volume"),
+        (bv3, "Volume 30d", "DEXs by 30d Volume"),
+    ]:
+        with col_ui:
+            fig_bv = volume_bar_chart(protocols_df, col_name, ttl, f"{col_name} (USD)")
+            if fig_bv is not None:
+                st.plotly_chart(fig_bv, use_container_width=True)
+            else:
+                st.info(f"No data for {ttl}.")
+else:
+    st.info("No protocol-level data available.")
 
 st.markdown("---")
 
