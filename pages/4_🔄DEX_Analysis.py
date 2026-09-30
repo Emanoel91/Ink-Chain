@@ -51,7 +51,7 @@ line-height: 1.6;
 This page tracks <b>spot DEX trading volume</b> on the <b>Ink</b> chain — swap activity over
 time, protocol-level rankings, and market share across all decentralized exchanges live on
 Ink. Different versions of the same exchange (e.g. Uniswap V3 / V4) are combined into one
-entry. Data is sourced live from the <b>DefiLlama</b> free public API.
+entry.
 </div>
 """,
     unsafe_allow_html=True
