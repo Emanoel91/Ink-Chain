@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+from plotly.subplots import make_subplots
 import requests
 import re
 from datetime import datetime, timedelta
@@ -17,6 +18,9 @@ st.set_page_config(
 
 CHAIN_NAME = "Ink"          # exact chain key as used by DefiLlama
 ACCENT = "#7132f5"
+LINE_COLOR = "#f59e0b"      # cumulative (Total Volume) line
+POS_COLOR = "#16a34a"       # green for positive change
+NEG_COLOR = "#dc2626"       # red for negative change
 BOX_BG = "#E5F2FF"
 
 # ============================================================
@@ -203,27 +207,26 @@ c7.metric("Top DEX Share (24h)", fmt_pct(top_dex_share))
 st.markdown("---")
 
 # ============================================================
-# --- DEX Volume Over Time (timeframe + range selector) ---
+# --- DEX Volume Over Time (bars + cumulative line) ---
 # ============================================================
 if not chart_df.empty:
     timeframe = st.radio(
-        "Timeframe", ["Daily", "Weekly", "Monthly"], horizontal=True, index=0
+        "Timeframe", ["Daily", "Weekly", "Monthly", "Quarterly"], horizontal=True, index=0
     )
 
+    series = chart_df.set_index("date")["volume"]
     if timeframe == "Weekly":
-        agg_df = (
-            chart_df.set_index("date")["volume"]
-            .resample("W-MON").sum()
-            .reset_index()
-        )
+        agg_df = series.resample("W-MON").sum().reset_index()
     elif timeframe == "Monthly":
-        agg_df = (
-            chart_df.set_index("date")["volume"]
-            .resample("MS").sum()
-            .reset_index()
-        )
+        agg_df = series.resample("MS").sum().reset_index()
+    elif timeframe == "Quarterly":
+        agg_df = series.resample("QS").sum().reset_index()
     else:
         agg_df = chart_df[["date", "volume"]].copy()
+
+    # Cumulative volume is computed on the FULL history, then the range filter is applied,
+    # so the line always shows the true running total (not a total restarted at range start).
+    agg_df["cumulative"] = agg_df["volume"].cumsum()
 
     range_map = {"7D": 7, "30D": 30, "90D": 90, "180D": 180, "1Y": 365, "All": None}
     range_choice = st.radio("Range", list(range_map.keys()), horizontal=True, index=5, label_visibility="collapsed")
@@ -231,22 +234,65 @@ if not chart_df.empty:
     days = range_map[range_choice]
     plot_df = agg_df if days is None else agg_df[agg_df["date"] >= (last_date - timedelta(days=days))]
 
-    fig_vol = go.Figure()
-    fig_vol.add_trace(go.Bar(
-        x=plot_df["date"], y=plot_df["volume"],
-        marker_color=ACCENT,
-        name="Volume"
-    ))
+    fig_vol = make_subplots(specs=[[{"secondary_y": True}]])
+    fig_vol.add_trace(
+        go.Bar(
+            x=plot_df["date"], y=plot_df["volume"],
+            marker_color=ACCENT,
+            name="Volume"
+        ),
+        secondary_y=False,
+    )
+    fig_vol.add_trace(
+        go.Scatter(
+            x=plot_df["date"], y=plot_df["cumulative"],
+            mode="lines",
+            line=dict(color=LINE_COLOR, width=3),
+            name="Total Volume"
+        ),
+        secondary_y=True,
+    )
     fig_vol.update_layout(
-        title="DEX Volume Over Time",
-        height=420,
-        margin=dict(l=10, r=10, t=50, b=10),
-        yaxis_title="Volume (USD)",
+        title=dict(text="DEX Volume Over Time", x=0, xanchor="left", y=0.97),
+        height=460,
+        margin=dict(l=10, r=10, t=90, b=10),
         xaxis_title=None,
         hovermode="x unified",
-        plot_bgcolor="white"
+        plot_bgcolor="white",
+        legend=dict(
+            orientation="h",
+            x=0.5, xanchor="center",
+            y=1.02, yanchor="bottom",
+        ),
     )
+    fig_vol.update_yaxes(title_text="Volume (USD)", secondary_y=False)
+    fig_vol.update_yaxes(title_text="Total Volume (USD)", secondary_y=True, showgrid=False)
     st.plotly_chart(fig_vol, use_container_width=True)
+
+    # ========================================================
+    # --- Monthly Volume KPIs (below the chart) ---
+    # ========================================================
+    monthly = series.resample("MS").sum()
+    # Drop the current month if it is still in progress, so it doesn't distort Min/Avg/Median
+    if not monthly.empty and last_date.day != last_date.days_in_month:
+        monthly = monthly.iloc[:-1]
+    monthly = monthly[monthly > 0]
+
+    if not monthly.empty:
+        max_month = monthly.idxmax()
+        min_month = monthly.idxmin()
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Max Monthly Volume", fmt_usd(monthly.max()))
+        m1.caption(f"📅 {max_month.strftime('%B %Y')}")
+        m2.metric("Avg Monthly Volume", fmt_usd(monthly.mean()))
+        m2.caption(f"Based on {len(monthly)} complete months")
+        m3.metric("Min Monthly Volume", fmt_usd(monthly.min()))
+        m3.caption(f"📅 {min_month.strftime('%B %Y')}")
+        m4.metric("Median Monthly Volume", fmt_usd(monthly.median()))
+        m4.caption("Complete months only")
+    else:
+        st.info("Not enough complete months of data to compute monthly statistics.")
 else:
     st.info("No historical volume chart available for Ink.")
 
@@ -291,6 +337,65 @@ with col_right:
             yaxis_title=None
         )
         st.plotly_chart(fig_top, use_container_width=True)
+    else:
+        st.info("No protocol-level data available.")
+
+st.markdown("---")
+
+# ============================================================
+# --- DEX Volume Change (1d / 7d) — green positive, red negative ---
+# ============================================================
+
+
+def change_bar_chart(df: pd.DataFrame, col: str, title: str):
+    """Horizontal bar chart of per-DEX % change. Zero / missing values are removed;
+    positive bars are green, negative bars are red."""
+    d = df[["Protocol", col]].dropna()
+    d = d[d[col] != 0].sort_values(col)          # ascending -> largest at the top
+    if d.empty:
+        return None
+
+    colors = [POS_COLOR if v > 0 else NEG_COLOR for v in d[col]]
+    fig = go.Figure(go.Bar(
+        x=d[col], y=d["Protocol"],
+        orientation="h",
+        marker_color=colors,
+        text=[f"{v:+.2f}%" for v in d[col]],
+        textposition="outside",
+        cliponaxis=False,
+    ))
+    fig.update_layout(
+        title=title,
+        height=max(320, 32 * len(d) + 110),
+        margin=dict(l=10, r=40, t=50, b=10),
+        xaxis_title="Change (%)",
+        yaxis_title=None,
+        plot_bgcolor="white",
+        showlegend=False,
+    )
+    fig.add_vline(x=0, line_width=1, line_color="gray")
+    return fig
+
+
+chg_left, chg_right = st.columns(2)
+
+with chg_left:
+    if not protocols_df.empty:
+        fig_c1 = change_bar_chart(protocols_df, "Change 1d (%)", "DEX Volume Change 1d (%)")
+        if fig_c1 is not None:
+            st.plotly_chart(fig_c1, use_container_width=True)
+        else:
+            st.info("No 1d volume change data available.")
+    else:
+        st.info("No protocol-level data available.")
+
+with chg_right:
+    if not protocols_df.empty:
+        fig_c7 = change_bar_chart(protocols_df, "Change 7d (%)", "DEX Volume Change 7d (%)")
+        if fig_c7 is not None:
+            st.plotly_chart(fig_c7, use_container_width=True)
+        else:
+            st.info("No 7d volume change data available.")
     else:
         st.info("No protocol-level data available.")
 
