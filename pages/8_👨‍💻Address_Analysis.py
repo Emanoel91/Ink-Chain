@@ -120,6 +120,10 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# Placeholder for the "Key Insights" headlines: it sits at the top of the page but is filled in
+# further down, once the data has been loaded and the KPIs have been computed.
+insights_box = st.container()
+
 errors = []
 
 
@@ -370,6 +374,119 @@ v, d = share_window(7)
 r4[2].metric("Returning Share (7d)", pct_str(v), pp(d))
 v, d = share_window(30)
 r4[3].metric("Returning Share (30d)", pct_str(v), pp(d))
+
+
+# ============================================================
+# --- Key Insights (auto-generated headlines, shown at the top of the page) ---
+# ============================================================
+TONE_STYLE = {
+    "up":      ("▲", "#16a34a"),
+    "down":    ("▼", "#dc2626"),
+    "neutral": ("●", "#6b7280"),
+}
+
+
+def change_phrase(ch, flat=1.0):
+    """('up 5.2%' | 'down 3.1%' | 'flat', tone) for a % change; (None, 'neutral') if unavailable."""
+    if ch is None or pd.isna(ch):
+        return None, "neutral"
+    if abs(ch) < flat:
+        return "flat", "neutral"
+    return (f"up {abs(ch):.1f}%" if ch > 0 else f"down {abs(ch):.1f}%"), ("up" if ch > 0 else "down")
+
+
+def build_insights():
+    """Headline sentences computed from the daily data. Independent of the Time Frame / Range filters."""
+    out = []                                         # (tone, html)
+    day = last_day.strftime("%b %d, %Y")
+
+    # 1) Size of the account base
+    g30 = pct(cum_now, cum_30)
+    w, tone = change_phrase(g30, flat=0.05)
+    out.append((tone, f"<b>{cum_now:,.0f}</b> accounts in total on Ink"
+                      + (f" — the account base is {w} over the last 30 days." if w else ".")))
+
+    # 2) New accounts, last 7 days
+    n7, n7ch = window_sum(new_s, 7)
+    w, tone = change_phrase(n7ch)
+    if n7 is not None:
+        out.append((tone, f"<b>{fmt_num(n7)}</b> new accounts joined in the last 7 days"
+                          + (f" ({w} vs the previous 7 days)." if w else ".")))
+
+    # 3) Momentum of new-account acquisition (7-day average vs 30-day average)
+    a7n, _ = window_avg(new_s, 7)
+    a30n, _ = window_avg(new_s, 30)
+    if a7n is not None and a30n:
+        ratio = a7n / a30n
+        if ratio >= 1.10:
+            out.append(("up", f"New-account growth is <b>accelerating</b>: the 7-day average "
+                              f"({fmt_num(a7n)}/day) is {abs(ratio - 1) * 100:.0f}% above the 30-day average ({fmt_num(a30n)}/day)."))
+        elif ratio <= 0.90:
+            out.append(("down", f"New-account growth is <b>cooling</b>: the 7-day average "
+                                f"({fmt_num(a7n)}/day) is {abs(1 - ratio) * 100:.0f}% below the 30-day average ({fmt_num(a30n)}/day)."))
+
+    # 3b) Active accounts, latest day and weekly average
+    a_last, a_ch = last_vs_prev(act_s)
+    a7, a7ch = window_avg(act_s, 7)
+    w, tone = change_phrase(a_ch)
+    if a_last is not None:
+        text = f"<b>{fmt_num(a_last)}</b> accounts were active on {day}"
+        text += f" ({w} vs the day before)" if w else ""
+        w7, _ = change_phrase(a7ch)
+        if a7 is not None:
+            text += f"; the 7-day average is {fmt_num(a7)}/day" + (f" ({w7} vs the prior week)." if w7 else ".")
+        else:
+            text += "."
+        out.append((tone, text))
+
+    # 4) Retention
+    sh7, d7 = share_window(7)
+    if sh7 is not None:
+        tone = "up" if (d7 is not None and d7 >= 0.5) else "down" if (d7 is not None and d7 <= -0.5) else "neutral"
+        who = "mostly returning users" if sh7 >= 50 else "mostly newcomers"
+        out.append((tone, f"<b>{sh7:.1f}%</b> of active accounts over the last 7 days were returning users "
+                          f"({d7:+.1f} pp vs the previous week) — the active base is {who}."))
+
+    # 5) Records
+    for label, s in (("daily active accounts", act_s), ("daily new accounts", new_s)):
+        top = s.loc[s["value"].idxmax()]
+        if top["date"] >= last_day - pd.Timedelta(days=6):
+            out.append(("up", f"🏆 <b>New all-time high</b> in {label}: <b>{fmt_num(top['value'])}</b> "
+                              f"on {top['date'].strftime('%b %d, %Y')}."))
+    top = act_s.loc[act_s["value"].idxmax()]
+    if top["date"] < last_day - pd.Timedelta(days=6) and a_last is not None:
+        out.append(("neutral", f"All-time peak of daily active accounts: <b>{fmt_num(top['value'])}</b> on "
+                               f"{top['date'].strftime('%b %d, %Y')}; the latest day is {a_last / top['value'] * 100:.0f}% of that level."))
+
+    # 6) Weekday pattern (last 90 days)
+    recent = D.tail(90)
+    if len(recent) >= 28:
+        g = recent.assign(wd=recent["date"].dt.dayofweek).groupby("wd")["active"].mean()
+        best, worst = g.idxmax(), g.idxmin()
+        if g[worst] > 0:
+            out.append(("neutral", f"Over the last 90 days, <b>{WEEKDAYS[best]}</b> is the busiest day "
+                                   f"({fmt_num(g[best])} active accounts on average) and <b>{WEEKDAYS[worst]}</b> the quietest "
+                                   f"({fmt_num(g[worst])}) — a {((g[best] / g[worst]) - 1) * 100:.0f}% gap."))
+    return out
+
+
+insights = build_insights()
+with insights_box:
+    items = "".join(
+        f'<li style="margin:6px 0;"><span style="color:{TONE_STYLE[t][1]}; font-weight:700;">{TONE_STYLE[t][0]}</span> {txt}</li>'
+        for t, txt in insights
+    )
+    st.markdown(
+        f"""
+        <div style="background:#F1EAFE; border:1px solid #d9c8fb; border-left:6px solid #7132f5;
+                    border-radius:10px; padding:14px 20px; margin-top:12px; color:#1a1a1a; font-size:15.5px; line-height:1.55;">
+            <div style="font-weight:700; font-size:18px; margin-bottom:4px;">📰 Key Insights — latest complete day: {last_day.strftime('%Y-%m-%d')} (UTC)</div>
+            <ul style="list-style:none; padding-left:0; margin:6px 0 4px 0;">{items}</ul>
+            <div style="font-size:12px; color:#6b7280;">Auto-generated from the daily data; independent of the Time Frame and Range filters below.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 st.markdown("---")
 
