@@ -55,7 +55,7 @@ st.sidebar.markdown(
 )
 # --- Page Config: Tab Title & Icon ---
 st.set_page_config(
-    page_title="Ink Chain — Transaction & Addresses",
+    page_title="Ink Chain — Transaction Analysis",
     page_icon="https://explorer.inkonchain.com/assets/configs/network_icon.svg",
     layout="wide"
 )
@@ -65,7 +65,7 @@ st.markdown(
     """
     <div style="display: flex; align-items: center; gap: 15px;">
         <img src="https://img.cryptorank.io/coins/ink1729850762329.png" alt="Ink" style="width:60px; height:60px;">
-        <h1 style="margin: 0;">Ink Chain — Transaction & Addresses</h1>
+        <h1 style="margin: 0;">Ink Chain — Transaction Analysis</h1>
     </div>
     """,
     unsafe_allow_html=True
