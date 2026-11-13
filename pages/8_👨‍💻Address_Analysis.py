@@ -1,5 +1,6 @@
 import requests
 import streamlit as st
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta, timezone
@@ -467,22 +468,159 @@ def build_insights():
             out.append(("neutral", f"Over the last 90 days, <b>{WEEKDAYS[best]}</b> is the busiest day "
                                    f"({fmt_num(g[best])} active accounts on average) and <b>{WEEKDAYS[worst]}</b> the quietest "
                                    f"({fmt_num(g[worst])}) — a {((g[best] / g[worst]) - 1) * 100:.0f}% gap."))
+    out.sort(key=lambda x: 0 if "🏆" in x[1] else 1)         # record-high news goes first (stable sort keeps the rest in order)
+    return out
+
+
+# ------------------------------------------------------------
+# Large moves: any headline indicator that moved by +/-50% or more gets a data-derived explanation
+# ------------------------------------------------------------
+LARGE_MOVE_PCT = 50.0
+
+
+def _dir(ch):
+    return "up" if ch > 0 else "down"
+
+
+def _last_day_why(col, ch):
+    """Explain a big day-over-day move using only the data."""
+    s = D[col]
+    if len(s) < 9:
+        return None
+    last_v, prev_v = s.iloc[-1], s.iloc[-2]
+    base = s.iloc[-9:-2].mean()                     # 7 days before the previous day
+    own = s.iloc[-8:-1].mean()                      # 7 days before the latest day
+    parts = []
+    if base > 0 and abs(prev_v / base - 1) >= 0.30:
+        parts.append(f"base effect: the previous day ({fmt_num(prev_v)}) was already "
+                     f"{abs(prev_v / base - 1) * 100:.0f}% {'above' if prev_v > base else 'below'} its own trailing 7-day average ({fmt_num(base)})")
+    if own > 0:
+        vs = (last_v / own - 1) * 100
+        if abs(vs) >= 30:
+            parts.append(f"the latest day is {abs(vs):.0f}% {'above' if vs > 0 else 'below'} its trailing 7-day average ({fmt_num(own)}), "
+                         f"so it is {'a genuine spike' if vs > 0 else 'a genuine drop'} and not only a rebound")
+        elif not parts:
+            parts.append(f"the latest day is close to its trailing 7-day average ({fmt_num(own)}), "
+                         f"so the swing mostly reflects an unusual previous day")
+    recent = D.tail(90).assign(wd=D.tail(90)["date"].dt.dayofweek).groupby("wd")[col].mean()
+    d_last, d_prev = D["date"].iloc[-1].dayofweek, D["date"].iloc[-2].dayofweek
+    if d_last in recent.index and d_prev in recent.index and recent[d_prev] > 0:
+        wd = (recent[d_last] / recent[d_prev] - 1) * 100
+        if abs(wd) >= 20:
+            parts.append(f"weekday effect: {WEEKDAYS[d_last]} is typically {abs(wd):.0f}% {'higher' if wd > 0 else 'lower'} than {WEEKDAYS[d_prev]}")
+    return "; ".join(parts) if parts else None
+
+
+def _window_why(col, n, ch, mode):
+    """Explain a big n-day window move: vs a longer baseline and whether one day drives it."""
+    s = D[col]
+    if len(s) < 2 * n + 30:
+        return None
+    cur = s.tail(n)
+    prv = s.iloc[-2 * n:-n]
+    parts = []
+    base = s.iloc[-(2 * n + 90):-n]                 # up to ~90 days before the current window
+    if base.mean() > 0:
+        vs = (cur.mean() / base.mean() - 1) * 100
+        if abs(vs) >= 30:
+            parts.append(f"against a longer baseline ({len(base)} days before) the window is still {abs(vs):.0f}% "
+                         f"{'above' if vs > 0 else 'below'} normal, so it is {'a real surge' if vs > 0 else 'a real slowdown'}")
+        else:
+            parts.append(f"base effect: the comparison window was unusually {'weak' if ch > 0 else 'strong'}; "
+                         f"versus the longer baseline the current level is only {vs:+.0f}%")
+    if mode == "sum" and cur.sum() > 0 and cur.max() / cur.sum() >= 2.5 / n:
+        d = D["date"].iloc[len(D) - n + int(np.argmax(cur.values))]
+        parts.append(f"one day ({d.strftime('%b %d')}) contributes {cur.max() / cur.sum() * 100:.0f}% of the window, so the move is concentrated")
+    return "; ".join(parts) if parts else None
+
+
+def build_large_moves():
+    """List of (tone, headline_html, why_text) for every headline indicator with |change| >= LARGE_MOVE_PCT."""
+    out = []
+    names = {"new": "New accounts", "active": "Active accounts", "returning": "Returning accounts"}
+
+    def add(ch, headline, why):
+        if ch is None or pd.isna(ch) or abs(ch) < LARGE_MOVE_PCT:
+            return
+        out.append(("up" if ch > 0 else "down", f"{headline} — <b>{ch:+.0f}%</b>", why))
+
+    # Account base (30d)
+    g30 = pct(cum_now, cum_30)
+    if g30 is not None and cum_30:
+        add(g30, f"Total accounts, last 30 days ({fmt_num(cum_30)} → {fmt_num(cum_now)})",
+            f"{fmt_num(cum_now - cum_30)} accounts were added to a base of {fmt_num(cum_30)}; a change this large means the base is still small "
+            f"relative to recent acquisition.")
+
+    # New accounts windows
+    for n in (7, 30):
+        v, ch = window_sum(new_s, n)
+        add(ch, f"New accounts, last {n} days ({fmt_num(v)})", _window_why("new", n, ch, "sum"))
+    v, ch = ytd_sum(new_s)
+    if v is not None and ch is not None and abs(ch) >= LARGE_MOVE_PCT:
+        end = new_s["date"].max()
+        prev_cur = v / (1 + ch / 100) if ch > -100 else None
+        add(ch, f"New accounts, year to date ({fmt_num(v)})",
+            f"compared with {fmt_num(prev_cur)} in the same period of {end.year - 1}"
+            + ("; the comparison year started from a much smaller base, which amplifies the percentage." if ch > 0 and
+               new_s["date"].min() > pd.Timestamp(year=end.year - 1, month=1, day=1) - pd.Timedelta(days=1) else "."))
+
+    # Averages per day
+    for col, s_, lab in (("new", new_s, "New accounts"), ("active", act_s, "Active accounts")):
+        for n in (7, 30):
+            v, ch = window_avg(s_, n)
+            add(ch, f"{lab}, {n}D average ({fmt_num(v)}/day)", _window_why(col, n, ch, "avg"))
+
+    # Last-day values
+    for col, s_ in (("new", new_s), ("active", act_s), ("returning", ret_s)):
+        v, ch = last_vs_prev(s_)
+        add(ch, f"{names[col]}, latest day ({fmt_num(v)})", _last_day_why(col, ch))
+
+    # Returning share (relative change of the share)
+    for n in (7, 30):
+        cur, d = share_window(n)
+        if cur is not None and d is not None and cur - d > 0:
+            rel = d / (cur - d) * 100
+            a_ch = pct(D["active"].tail(n).sum(), D["active"].iloc[-2 * n:-n].sum())
+            n_ch = pct(D["new"].tail(n).sum(), D["new"].iloc[-2 * n:-n].sum())
+            why = f"the share moved from {cur - d:.1f}% to {cur:.1f}% ({d:+.1f} pp)"
+            if a_ch is not None and n_ch is not None:
+                why += f"; active accounts changed {a_ch:+.0f}% while new accounts changed {n_ch:+.0f}%"
+            add(rel, f"Returning share, last {n} days ({cur:.1f}%)", why)
+    out.sort(key=lambda x: -abs(float(x[1].split("<b>")[-1].split("%")[0])))
     return out
 
 
 insights = build_insights()
+large_moves = build_large_moves()
 with insights_box:
     items = "".join(
         f'<li style="margin:6px 0;"><span style="color:{TONE_STYLE[t][1]}; font-weight:700;">{TONE_STYLE[t][0]}</span> {txt}</li>'
         for t, txt in insights
     )
+    if large_moves:
+        lm_items = "".join(
+            f'<li style="margin:8px 0;"><span style="color:{TONE_STYLE[t][1]}; font-weight:700;">{TONE_STYLE[t][0]}</span> {head}'
+            + (f'<div style="font-size:13.5px; color:#4b5563; margin-left:18px;">Why: {why}.</div>' if why else
+               '<div style="font-size:13.5px; color:#4b5563; margin-left:18px;">Why: no single driver stands out in the data.</div>')
+            + "</li>"
+            for t, head, why in large_moves
+        )
+        lm_block = (f'<div style="border-top:1px dashed #b99cf9; margin-top:10px; padding-top:8px;">'
+                    f'<div style="font-weight:700; font-size:16px;">⚠️ Large moves (±{LARGE_MOVE_PCT:.0f}% or more) — what is behind them</div>'
+                    f'<ul style="list-style:none; padding-left:0; margin:6px 0 4px 0;">{lm_items}</ul>'
+                    f'<div style="font-size:12px; color:#6b7280;">Explanations show what moved in the data (base effect, outlier days, weekday pattern); '
+                    f'they do not identify real-world causes such as campaigns or incentives.</div></div>')
+    else:
+        lm_block = ('<div style="border-top:1px dashed #b99cf9; margin-top:10px; padding-top:8px; font-size:13.5px; color:#6b7280;">'
+                    f'No headline indicator moved by ±{LARGE_MOVE_PCT:.0f}% or more.</div>')
     st.markdown(
         f"""
         <div style="background:#F1EAFE; border:1px solid #d9c8fb; border-left:6px solid #7132f5;
                     border-radius:10px; padding:14px 20px; margin-top:12px; color:#1a1a1a; font-size:15.5px; line-height:1.55;">
             <div style="font-weight:700; font-size:18px; margin-bottom:4px;">📰 Key Insights — latest complete day: {last_day.strftime('%Y-%m-%d')} (UTC)</div>
             <ul style="list-style:none; padding-left:0; margin:6px 0 4px 0;">{items}</ul>
-            <div style="font-size:12px; color:#6b7280;">Auto-generated from the daily data; independent of the Time Frame and Range filters below.</div>
+            {lm_block}
+            <div style="font-size:12px; color:#6b7280; margin-top:8px;">Auto-generated from the daily data; independent of the Time Frame and Range filters below.</div>
         </div>
         """,
         unsafe_allow_html=True,
