@@ -132,7 +132,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 st.markdown("")
-insights_box = st.container()      # filled further down, once the data is loaded
 # ============================================================
 # --- Data Fetchers (free public on-chain analytics API) ---
 # ============================================================
@@ -281,241 +280,6 @@ def fmt_pct(x):
 
 
 # ============================================================
-# --- Key Insights (auto-generated headlines, shown at the top of the page) ---
-# ============================================================
-LARGE_MOVE_PCT = 50.0
-TONE_STYLE = {
-    "up":      ("▲", "#16a34a"),
-    "down":    ("▼", "#dc2626"),
-    "neutral": ("●", "#6b7280"),
-}
-
-
-def _tone(ch, flat=0.5):
-    if ch is None or pd.isna(ch) or abs(ch) < flat:
-        return "neutral"
-    return "up" if ch > 0 else "down"
-
-
-def _past_tvl(days):
-    past = hist_df[hist_df["date"] <= current_date - timedelta(days=days)]
-    return past.iloc[-1]["tvl"] if not past.empty else None
-
-
-def _drivers(col, delta):
-    """Protocols (counted in chain TVL) ranked by the USD change implied by their own % change."""
-    if col not in counted_df or counted_df.empty or not delta:
-        return None
-    d = counted_df[counted_df[col].notna() & (counted_df[col] > -100)].copy()
-    if d.empty:
-        return None
-    d["contrib"] = d["TVL"] - d["TVL"] / (1 + d[col] / 100)
-    d = d[d["contrib"] * delta > 0]               # only protocols moving in the chain's direction
-    if d.empty:
-        return None
-    return d.loc[d["contrib"].abs().idxmax()]
-
-
-def _chain_why(days, ch):
-    """Explain a big chain-level TVL move using only the data."""
-    past = _past_tvl(days)
-    if not past:
-        return None
-    delta = current_tvl - past
-    parts = []
-
-    base = hist_df[(hist_df["date"] < current_date - timedelta(days=days)) &
-                   (hist_df["date"] >= current_date - timedelta(days=days + 90))]["tvl"]
-    if len(base) >= 14 and base.mean() > 0:
-        vs = (current_tvl / base.mean() - 1) * 100
-        if abs(vs) >= 30:
-            parts.append(f"against the 90 days before the window the level is still {abs(vs):.0f}% "
-                         f"{'above' if vs > 0 else 'below'} normal, so it is {'a real surge' if vs > 0 else 'a real drop'}")
-        else:
-            parts.append(f"base effect: the starting level was unusually {'low' if ch > 0 else 'high'}; "
-                         f"versus the 90-day average the current TVL is only {vs:+.0f}%")
-
-    if days > 1:
-        win = hist_df[hist_df["date"] > current_date - timedelta(days=days)]
-        steps = hist_df.set_index("date")["tvl"].diff().reindex(win["date"]).dropna()
-        if len(steps) >= 2 and delta:
-            big = steps.abs().idxmax()
-            if steps[big] * delta > 0 and steps[big] / delta >= 0.5:
-                parts.append(f"a single day ({big.strftime('%b %d')}) accounts for {steps[big] / delta * 100:.0f}% of the move")
-
-    col = {1: "Change 1d (%)", 7: "Change 7d (%)"}.get(days)
-    top = _drivers(col, delta) if col else None
-    if top is not None:
-        parts.append(f"largest driver: {top['Protocol']} ({'+' if top['contrib'] > 0 else '−'}{fmt_usd(abs(top['contrib']))}, "
-                     f"{abs(top['contrib'] / delta) * 100:.0f}% of the chain's change)")
-    return "; ".join(parts) if parts else None
-
-
-def _ath_why():
-    parts = []
-    since = (current_date - ath_date).days
-    parts.append(f"the peak of {fmt_usd(ath_tvl)} was set on {ath_date.strftime('%b %d, %Y')} ({since} days ago)")
-    around = hist_df[(hist_df["date"] >= ath_date - timedelta(days=15)) & (hist_df["date"] <= ath_date + timedelta(days=15))]["tvl"]
-    if len(around) >= 10 and around.median() > 0 and ath_tvl / around.median() >= 1.5:
-        parts.append(f"the peak looks like a short spike ({(ath_tvl / around.median() - 1) * 100:.0f}% above the surrounding "
-                     f"30-day median), so the drawdown is partly inflated by that spike")
-    p30 = _past_tvl(30)
-    total_fall = ath_tvl - current_tvl
-    if p30 and total_fall > 0:
-        recent = max(p30 - current_tvl, 0) / total_fall * 100
-        parts.append(f"{recent:.0f}% of the decline happened in the last 30 days")
-    return "; ".join(parts)
-
-
-def _protocol_why(row, col, label):
-    ch = row[col]
-    share = row["TVL"] / protocols_tvl_sum * 100 if protocols_tvl_sum else None
-    delta = row["TVL"] - row["TVL"] / (1 + ch / 100) if ch > -100 else None
-    parts = []
-    if share is not None and delta is not None:
-        if share < 1:
-            parts.append(f"small base: only {share:.2f}% of Ink's counted TVL, so a {fmt_usd(abs(delta))} change is large in % terms "
-                         f"but minor for the chain")
-        else:
-            parts.append(f"material: {share:.1f}% of Ink's counted TVL, a {fmt_usd(abs(delta))} change")
-    c1 = row.get("Change 1d (%)")
-    if col == "Change 7d (%)" and pd.notnull(c1) and c1 > -100 and ch > -100:
-        f1 = 1 - 1 / (1 + c1 / 100)
-        f7 = 1 - 1 / (1 + ch / 100)
-        if f7 and f1 / f7 >= 0.6:
-            parts.append("most of the 7-day move happened in the last day")
-    return "; ".join(parts) if parts else None
-
-
-def build_insights():
-    """Headline sentences computed from the data."""
-    out = []                                              # (tone, html)
-
-    # 1) TVL level and momentum
-    bits = [f"{lab} {v:+.1f}%" for lab, v in (("1d", change_1d), ("7d", change_7d), ("30d", change_30d)) if v is not None]
-    out.append((_tone(change_7d if change_7d is not None else change_1d),
-                f"<b>{fmt_usd(current_tvl)}</b> is locked in DeFi on Ink"
-                + (f" — change: {', '.join(bits)}." if bits else ".")))
-
-    # 2) All-time high / drawdown
-    if (current_date - ath_date).days <= 7:
-        out.append(("up", f"🏆 <b>TVL is at or near its all-time high</b> ({fmt_usd(ath_tvl)} on {ath_date.strftime('%b %d, %Y')})."))
-    elif drawdown_from_ath is not None:
-        out.append(("down" if drawdown_from_ath <= -5 else "neutral",
-                    f"TVL is <b>{abs(drawdown_from_ath):.1f}% below</b> its all-time high of {fmt_usd(ath_tvl)} "
-                    f"({ath_date.strftime('%b %d, %Y')})."))
-
-    # 3) Rank and dominance
-    if chain_rank:
-        out.append(("neutral", f"Ink ranks <b>#{chain_rank}</b> of {len(chains_df)} chains by TVL"
-                               + (f", with {dominance:.2f}% of all DeFi TVL." if dominance is not None else ".")))
-
-    # 4) Concentration
-    if not counted_df.empty and protocols_tvl_sum:
-        t1 = counted_df.iloc[0]
-        s1 = t1["TVL"] / protocols_tvl_sum * 100
-        s3 = counted_df.head(3)["TVL"].sum() / protocols_tvl_sum * 100
-        level = "highly concentrated" if s1 >= 50 else "concentrated" if s3 >= 70 else "fairly diversified"
-        out.append(("neutral", f"<b>{t1['Protocol']}</b> is the largest protocol with {fmt_usd(t1['TVL'])} ({s1:.1f}% of counted TVL); "
-                               f"the top 3 hold {s3:.1f}% — TVL is {level}."))
-
-    # 5) Categories
-    if not counted_df.empty and protocols_tvl_sum:
-        cats = counted_df.groupby("Category")["TVL"].sum().sort_values(ascending=False)
-        txt = f"<b>{cats.index[0]}</b> is the leading category with {cats.iloc[0] / protocols_tvl_sum * 100:.1f}% of counted TVL"
-        if len(cats) > 1:
-            txt += f", followed by {cats.index[1]} ({cats.iloc[1] / protocols_tvl_sum * 100:.1f}%)"
-        out.append(("neutral", txt + f" — {len(cats)} categories in total."))
-
-    # 6) Biggest 7d movers among meaningfully sized protocols
-    if not counted_df.empty and protocols_tvl_sum:
-        floor = max(0.005 * protocols_tvl_sum, 100_000)
-        m = counted_df[(counted_df["TVL"] >= floor) & counted_df["Change 7d (%)"].notna()]
-        if not m.empty:
-            up, dn = m.loc[m["Change 7d (%)"].idxmax()], m.loc[m["Change 7d (%)"].idxmin()]
-            if up["Change 7d (%)"] > 0:
-                out.append(("up", f"Biggest 7-day gainer: <b>{up['Protocol']}</b> ({up['Change 7d (%)']:+.1f}%, {fmt_usd(up['TVL'])} TVL)."))
-            if dn["Change 7d (%)"] < 0:
-                out.append(("down", f"Biggest 7-day loser: <b>{dn['Protocol']}</b> ({dn['Change 7d (%)']:+.1f}%, {fmt_usd(dn['TVL'])} TVL)."))
-            out_note = f"Movers consider protocols with at least {fmt_usd(floor)} TVL."
-            out.append(("neutral", f'<span style="color:#6b7280; font-size:13px;">{out_note}</span>'))
-
-    # 7) Excluded protocols
-    if num_excluded > 0:
-        ex = protocols_df[~protocols_df["Counted in Chain TVL"]]
-        out.append(("neutral", f"{num_excluded} protocol(s) in excluded categories (e.g. {', '.join(ex.head(3)['Protocol'])}) are "
-                               f"<b>not counted</b> in Ink's headline TVL; every figure on this page uses counted protocols only."))
-    return out
-
-
-def build_large_moves():
-    """(tone, headline_html, why) for every headline indicator with |change| >= LARGE_MOVE_PCT."""
-    out = []
-
-    def add(ch, headline, why):
-        if ch is None or pd.isna(ch) or abs(ch) < LARGE_MOVE_PCT:
-            return
-        out.append(("up" if ch > 0 else "down", f"{headline} — <b>{ch:+.0f}%</b>", why))
-
-    for days, ch in ((1, change_1d), (7, change_7d), (30, change_30d)):
-        add(ch, f"Ink total TVL, {days}d ({fmt_usd(current_tvl)})", _chain_why(days, ch))
-    add(drawdown_from_ath, "TVL vs all-time high", _ath_why())
-
-    # Protocols (counted in chain TVL), largest first, max 6
-    if not counted_df.empty:
-        cand = []
-        for col, lab in (("Change 1d (%)", "1d"), ("Change 7d (%)", "7d")):
-            for _, r in counted_df[counted_df[col].abs() >= LARGE_MOVE_PCT].iterrows():
-                cand.append((r["TVL"], r, col, lab))
-        cand.sort(key=lambda x: -x[0])
-        for _, r, col, lab in cand[:6]:
-            add(r[col], f"{r['Protocol']} TVL, {lab} ({fmt_usd(r['TVL'])})", _protocol_why(r, col, lab))
-        if len(cand) > 6:
-            out.append(("neutral", f"…and {len(cand) - 6} more protocol move(s) of ±{LARGE_MOVE_PCT:.0f}% or more "
-                                   f"(smaller protocols); see the gainers/losers charts below.", None))
-    return out
-
-
-insights = build_insights()
-large_moves = build_large_moves()
-with insights_box:
-    items = "".join(
-        f'<li style="margin:6px 0;"><span style="color:{TONE_STYLE[t][1]}; font-weight:700;">{TONE_STYLE[t][0]}</span> {txt}</li>'
-        for t, txt in insights
-    )
-    if large_moves:
-        lm_items = "".join(
-            f'<li style="margin:8px 0;"><span style="color:{TONE_STYLE[t][1]}; font-weight:700;">{TONE_STYLE[t][0]}</span> {head}'
-            + (f'<div style="font-size:13.5px; color:#4b5563; margin-left:18px;">Why: {why}.</div>' if why else
-               ('' if head.startswith("…") else
-                '<div style="font-size:13.5px; color:#4b5563; margin-left:18px;">Why: no single driver stands out in the data.</div>'))
-            + "</li>"
-            for t, head, why in large_moves
-        )
-        lm_block = (f'<div style="border-top:1px dashed #b99cf9; margin-top:10px; padding-top:8px;">'
-                    f'<div style="font-weight:700; font-size:16px;">⚠️ Large moves (±{LARGE_MOVE_PCT:.0f}% or more) — what is behind them</div>'
-                    f'<ul style="list-style:none; padding-left:0; margin:6px 0 4px 0;">{lm_items}</ul>'
-                    f'<div style="font-size:12px; color:#6b7280;">Explanations show what moved in the data (base effect, one-day jumps, '
-                    f'dominant protocols); TVL also moves with token prices, and the data cannot identify real-world causes.</div></div>')
-    else:
-        lm_block = ('<div style="border-top:1px dashed #b99cf9; margin-top:10px; padding-top:8px; font-size:13.5px; color:#6b7280;">'
-                    f'No headline indicator moved by ±{LARGE_MOVE_PCT:.0f}% or more.</div>')
-    
-    st.markdown(
-        f"""
-        <div style="background:#F1EAFE; border:1px solid #d9c8fb; border-left:6px solid #7132f5;
-                    border-radius:10px; padding:14px 20px; margin-top:12px; color:#1a1a1a; font-size:15.5px; line-height:1.55;">
-            <div style="font-weight:700; font-size:18px; margin-bottom:4px;">📰 Key Insights — as of {current_date.strftime('%Y-%m-%d')} (UTC)</div>
-            <ul style="list-style:none; padding-left:0; margin:6px 0 4px 0;">{items}</ul>
-            {lm_block}
-            <div style="font-size:12px; color:#6b7280; margin-top:8px;">Auto-generated from the live data; independent of the chart filters below.</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-st.markdown("")
-# ============================================================
 # --- KPI Row 1 ---
 # ============================================================
 st.markdown(f"##### As of {current_date.strftime('%Y-%m-%d')}")
@@ -535,7 +299,17 @@ c6.metric("Down From ATH", fmt_pct(drawdown_from_ath))
 c7.metric("Protocols on Ink", f"{num_protocols}")
 c8.metric("DeFi TVL Dominance", fmt_pct(dominance) if dominance is not None else "N/A")
 
-
+st.markdown(
+    f"""
+<div style="font-size:14px; color:#555; margin-top:-5px;">
+Top protocol counted toward Chain TVL: <b>{top_protocol}</b> — {fmt_usd(top_protocol_tvl)}
+({fmt_pct(top_protocol_share)} of the {fmt_usd(protocols_tvl_sum)} summed across protocols
+counted toward Ink's Chain TVL — {fmt_pct(reconciliation_ratio - 100 if reconciliation_ratio is not None else None)}
+vs. the headline Total TVL KPI, a normal small gap)
+</div>
+""",
+    unsafe_allow_html=True
+)
 
 if num_excluded > 0:
     st.info(
@@ -577,6 +351,51 @@ fig_tvl.update_layout(
     plot_bgcolor="white"
 )
 st.plotly_chart(fig_tvl, use_container_width=True)
+
+st.markdown("---")
+
+# ============================================================
+# --- Top 20 Chains by TVL (Ink highlighted) ---
+# ============================================================
+def human_format(num):
+    if num >= 1e9:
+        return f"{num/1e9:.1f}B"
+    if num >= 1e6:
+        return f"{num/1e6:.1f}M"
+    if num >= 1e3:
+        return f"{num/1e3:.1f}K"
+    return str(int(num))
+
+
+top_chains = chains_df.head(20)[["name", "tvl", "rank"]].copy()
+ink_in_top = CHAIN_NAME in set(top_chains["name"])
+if not ink_in_top and chain_rank:
+    # Ink is outside the top 20: append it (with its rank) so it is still visible and highlighted
+    ink_row = chains_df[chains_df["name"] == CHAIN_NAME][["name", "tvl", "rank"]]
+    top_chains = pd.concat([top_chains, ink_row], ignore_index=True)
+
+is_ink = top_chains["name"] == CHAIN_NAME
+top_chains["label"] = top_chains["name"].where(~is_ink | ink_in_top, top_chains["name"] + " (#" + top_chains["rank"].astype(str) + ")")
+
+fig_chains = go.Figure(go.Bar(
+    x=top_chains["label"], y=top_chains["tvl"],
+    marker_color=["#7132f5" if v else "#d5bdfd" for v in is_ink],
+    text=[human_format(v) for v in top_chains["tvl"]],
+    textposition="outside",
+    hovertemplate="%{x}<br>TVL: $%{y:,.0f}<extra></extra>"
+))
+fig_chains.update_layout(
+    title=f"Top 20 Chains by TVL ($USD) — {CHAIN_NAME} highlighted"
+          + (f" (#{chain_rank})" if chain_rank else ""),
+    height=460,
+    margin=dict(l=10, r=10, t=60, b=10),
+    xaxis_title=None,
+    yaxis_title="$USD",
+    xaxis_tickangle=-35,
+    showlegend=False,
+    plot_bgcolor="white"
+)
+st.plotly_chart(fig_chains, use_container_width=True)
 
 st.markdown("---")
 
