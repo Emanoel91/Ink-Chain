@@ -565,7 +565,7 @@ fig_tvl.add_trace(go.Scatter(
     name="TVL"
 ))
 fig_tvl.update_layout(
-    title="Historical TVL",
+    title="Ink TVL Over Time",
     height=420,
     margin=dict(l=10, r=10, t=50, b=10),
     yaxis_title="TVL (USD)",
