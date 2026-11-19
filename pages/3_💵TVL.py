@@ -500,7 +500,7 @@ with insights_box:
     else:
         lm_block = ('<div style="border-top:1px dashed #b99cf9; margin-top:10px; padding-top:8px; font-size:13.5px; color:#6b7280;">'
                     f'No headline indicator moved by ±{LARGE_MOVE_PCT:.0f}% or more.</div>')
-    st.markdown("")
+    
     st.markdown(
         f"""
         <div style="background:#F1EAFE; border:1px solid #d9c8fb; border-left:6px solid #7132f5;
@@ -514,7 +514,7 @@ with insights_box:
         unsafe_allow_html=True,
     )
 
-
+st.markdown("")
 # ============================================================
 # --- KPI Row 1 ---
 # ============================================================
