@@ -535,17 +535,7 @@ c6.metric("Down From ATH", fmt_pct(drawdown_from_ath))
 c7.metric("Protocols on Ink", f"{num_protocols}")
 c8.metric("DeFi TVL Dominance", fmt_pct(dominance) if dominance is not None else "N/A")
 
-st.markdown(
-    f"""
-<div style="font-size:14px; color:#555; margin-top:-5px;">
-Top protocol counted toward Chain TVL: <b>{top_protocol}</b> — {fmt_usd(top_protocol_tvl)}
-({fmt_pct(top_protocol_share)} of the {fmt_usd(protocols_tvl_sum)} summed across protocols
-counted toward Ink's Chain TVL — {fmt_pct(reconciliation_ratio - 100 if reconciliation_ratio is not None else None)}
-vs. the headline Total TVL KPI, a normal small gap)
-</div>
-""",
-    unsafe_allow_html=True
-)
+
 
 if num_excluded > 0:
     st.info(
