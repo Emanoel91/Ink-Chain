@@ -621,6 +621,10 @@ def change_bar_chart(df: pd.DataFrame, col: str, title: str):
         showlegend=False,
     )
     fig.add_vline(x=0, line_width=1, line_color="gray")
+    # Leave empty room on both sides so bars and their outside value labels never run under the logos
+    lo, hi = min(d[col].min(), 0), max(d[col].max(), 0)
+    span = (hi - lo) or 1
+    fig.update_xaxes(range=[lo - (0.28 if lo < 0 else 0.03) * span, hi + (0.20 if hi > 0 else 0.05) * span])
     add_logos(fig, d, 0.06)
     return fig
 
