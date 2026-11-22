@@ -327,7 +327,7 @@ def donut_chart(df: pd.DataFrame, col: str, title: str):
 
 
 TITLE_SIZE = 22                       # chart-title font size
-LOGO_GAP = "\u00a0" * 9                # blank space between the y labels and the axis, where logos sit
+LOGO_GAP = "\u00a0" * 14               # blank space between the y labels and the axis, where logos sit
 
 
 def show_fig(fig):
@@ -344,7 +344,7 @@ def add_logos(fig, d: pd.DataFrame, logo_w: float):
     for i, url in enumerate(d["Logo URL"]):
         if isinstance(url, str) and url:
             fig.add_layout_image(dict(
-                source=url, xref="paper", yref="y", x=0, y=i,
+                source=url, xref="paper", yref="y", x=-0.5 * logo_w, y=i,   # shifted left: gap between logo and bars
                 xanchor="right", yanchor="middle", sizex=logo_w, sizey=0.85,
                 sizing="contain", layer="above",
             ))
