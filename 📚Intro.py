@@ -33,6 +33,17 @@ st.markdown(
     ">
         <b>Ink</b> is a layer 2 blockchain built on the <b>Optimism Superchain</b>, focusing on providing fast, secure, and interoperable financial solutions. 
         With features such as low gas fees, sub-second transaction speeds, and Kraken's security support, Ink aims to offer developers a robust environment for building DeFi applications.
+        <br><br>
+        This dashboard brings together charts, KPIs, and tables covering the <b>on-chain data of the Ink chain</b>, so that every key
+        parameter of the network can be monitored and tracked in one place. Our goal is to make everything related to Ink's on-chain
+        activity easy to find, whether you are a builder, an analyst, or an investor.
+        <br><br>
+        <b>A note to all projects building on Ink:</b> your support helps us broaden the scope and depth of the data covered here.
+        We welcome your collaboration and contributions in making this dashboard the most comprehensive on-chain resource for the Ink ecosystem.
+        <br><br>
+        <b>Support this project:</b> this dashboard is built and maintained as an independent effort. Financial contributions from
+        projects, teams, and community members directly fund new data integrations, deeper analytics, and long-term maintenance.
+        If you find it valuable, please consider supporting us using the address in the Support / Tips box below. Every contribution is sincerely appreciated.
     </div>
     """,
     unsafe_allow_html=True
