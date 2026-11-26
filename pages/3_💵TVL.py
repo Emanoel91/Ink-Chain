@@ -515,24 +515,74 @@ with insights_box:
 
 
 # ============================================================
-# --- KPI Row 1 ---
+# --- KPI cards ---
 # ============================================================
+POS_COLOR = "#16a34a"       # green for positive change
+NEG_COLOR = "#dc2626"       # red for negative change
+CARD_COLOR = "#9d70ff"
+NEUTRAL_SUB = "#5b3fa6"
+
+
+def kpi_card(col, label: str, value: str, sub: str = None, sub_color: str = NEUTRAL_SUB):
+    """Bold KPI card with a #9d70ff colour pattern; `sub` is the footnote under the value."""
+    sub_html = (f'<div style="font-size:14px; font-weight:700; color:{sub_color}; margin-top:2px;">{sub}</div>'
+                if sub else '<div style="font-size:14px; margin-top:2px;">&nbsp;</div>')
+    col.markdown(
+        f"""
+<div style="background:linear-gradient(180deg,#f7f2ff 0%,#ece3ff 100%); border:1.5px solid {CARD_COLOR};
+            border-left:6px solid {CARD_COLOR}; border-radius:14px; padding:14px 16px; margin-bottom:14px;
+            box-shadow:0 2px 8px rgba(157,112,255,0.20); min-height:118px;">
+  <div style="font-size:14px; font-weight:700; color:{NEUTRAL_SUB};">{label}</div>
+  <div style="font-size:28px; font-weight:800; color:#1a1a1a; line-height:1.25; word-break:break-word;">{value}</div>
+  {sub_html}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def change_sub(chg, label: str):
+    """Footnote text + colour for a % change: green if positive, red if negative."""
+    if chg is None or pd.isna(chg):
+        return "N/A", "#6b7280"
+    arrow = "▲" if chg > 0 else "▼" if chg < 0 else "●"
+    color = POS_COLOR if chg > 0 else NEG_COLOR if chg < 0 else "#6b7280"
+    return f"{arrow} {chg:+.2f}% vs {label}", color
+
+
+def usd_change_sub(days: int):
+    """Footnote with the absolute USD change over `days` days (green if up, red if down)."""
+    past = _past_tvl(days)
+    if past is None:
+        return None, NEUTRAL_SUB
+    delta = current_tvl - past
+    arrow = "▲" if delta > 0 else "▼" if delta < 0 else "●"
+    color = POS_COLOR if delta > 0 else NEG_COLOR if delta < 0 else "#6b7280"
+    sign = "+" if delta > 0 else "−" if delta < 0 else ""
+    return f"{arrow} {sign}{fmt_usd(abs(delta))} vs {days}d ago", color
+
+
 st.markdown(f"##### As of {current_date.strftime('%Y-%m-%d')}")
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Total TVL", fmt_usd(current_tvl), fmt_pct(change_1d))
-c2.metric("TVL Change (7d)", fmt_pct(change_7d))
-c3.metric("TVL Change (30d)", fmt_pct(change_30d))
-c4.metric("Chain Rank by TVL", f"#{chain_rank}" if chain_rank else "N/A")
+# Row 1 — Total TVL (1d change) / 7d change / 30d change / Chain rank
+r1 = st.columns(4)
+txt, clr = change_sub(change_1d, "previous day")
+kpi_card(r1[0], "Total TVL", fmt_usd(current_tvl), txt, clr)
+txt, clr = usd_change_sub(7)
+kpi_card(r1[1], "TVL Change (7d)", fmt_pct(change_7d), txt, clr)
+txt, clr = usd_change_sub(30)
+kpi_card(r1[2], "TVL Change (30d)", fmt_pct(change_30d), txt, clr)
+kpi_card(r1[3], "Chain Rank by TVL", f"#{chain_rank}" if chain_rank else "N/A",
+         f"Among {len(chains_df)} tracked chains")
 
-# ============================================================
-# --- KPI Row 2 ---
-# ============================================================
-c5, c6, c7, c8 = st.columns(4)
-c5.metric("All-Time High TVL", fmt_usd(ath_tvl), f"{ath_date.strftime('%Y-%m-%d')}")
-c6.metric("Down From ATH", fmt_pct(drawdown_from_ath))
-c7.metric("Protocols on Ink", f"{num_protocols}")
-c8.metric("DeFi TVL Dominance", fmt_pct(dominance) if dominance is not None else "N/A")
+# Row 2 — ATH / drawdown / protocols / dominance
+r2 = st.columns(4)
+kpi_card(r2[0], "All-Time High TVL", fmt_usd(ath_tvl), f"📅 {ath_date.strftime('%b %d, %Y')}")
+dd_color = NEG_COLOR if (drawdown_from_ath is not None and drawdown_from_ath < 0) else "#6b7280"
+kpi_card(r2[1], "Down From ATH", fmt_pct(drawdown_from_ath),
+         f"▼ {fmt_usd(ath_tvl - current_tvl)} below the peak" if ath_tvl and current_tvl < ath_tvl else None, dd_color)
+kpi_card(r2[2], "Protocols on Ink", f"{num_protocols}", f"{num_protocols - num_excluded} counted in chain TVL")
+kpi_card(r2[3], "DeFi TVL Dominance", fmt_pct(dominance) if dominance is not None else "N/A", "Share of all DeFi TVL")
 
 if num_excluded > 0:
     st.info(
