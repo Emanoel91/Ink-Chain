@@ -1,3 +1,4 @@
+import numpy as np
 import requests
 import streamlit as st
 import pandas as pd
@@ -8,6 +9,13 @@ from common import (
     ACCENT, ACCENT_FILL, MA_COLOR,
     safe_call, empty_ts, show_chart, page_header, sidebar_controls,
     fmt_num, fmt_pct,
+)
+
+# --- Page Config: Tab Title & Icon ---
+st.set_page_config(
+    page_title="Ink Chain — Transaction Analysis",
+    page_icon="https://explorer.inkonchain.com/assets/configs/network_icon.svg",
+    layout="wide"
 )
 
 # --- Sidebar Footer Slightly Left-Aligned ---
@@ -53,13 +61,6 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True
 )
-# --- Page Config: Tab Title & Icon ---
-st.set_page_config(
-    page_title="Ink Chain — Transaction Analysis",
-    page_icon="https://explorer.inkonchain.com/assets/configs/network_icon.svg",
-    layout="wide"
-)
-
 # --- Title with Logo ---
 st.markdown(
     """
@@ -97,6 +98,8 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
+insights_box = st.container()      # filled further down, once the data is loaded
 
 errors = []
 
@@ -326,6 +329,286 @@ def fee_per_tx_last(fees_df):
 
 
 # ============================================================
+# --- KPI cards ---
+# ============================================================
+POS_COLOR = "#16a34a"       # green for positive change
+NEG_COLOR = "#dc2626"       # red for negative change
+CARD_COLOR = "#9d70ff"
+NEUTRAL_SUB = "#5b3fa6"
+
+
+def kpi_card(col, label: str, value: str, sub: str = None, sub_color: str = NEUTRAL_SUB):
+    """Bold KPI card with a #9d70ff colour pattern; `sub` is the footnote under the value."""
+    sub_html = (f'<div style="font-size:14px; font-weight:700; color:{sub_color}; margin-top:2px;">{sub}</div>'
+                if sub else '<div style="font-size:14px; margin-top:2px;">&nbsp;</div>')
+    col.markdown(
+        f"""
+<div style="background:linear-gradient(180deg,#f7f2ff 0%,#ece3ff 100%); border:1.5px solid {CARD_COLOR};
+            border-left:6px solid {CARD_COLOR}; border-radius:14px; padding:14px 16px; margin-bottom:14px;
+            box-shadow:0 2px 8px rgba(157,112,255,0.20); min-height:118px;">
+  <div style="font-size:14px; font-weight:700; color:{NEUTRAL_SUB};">{label}</div>
+  <div style="font-size:28px; font-weight:800; color:#1a1a1a; line-height:1.25; word-break:break-word;">{value}</div>
+  {sub_html}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def change_sub(chg, label: str):
+    """Footnote text + colour for a % change: green if positive, red if negative."""
+    if chg is None or pd.isna(chg):
+        return "N/A", "#6b7280"
+    arrow = "▲" if chg > 0 else "▼" if chg < 0 else "●"
+    color = POS_COLOR if chg > 0 else NEG_COLOR if chg < 0 else "#6b7280"
+    return f"{arrow} {chg:+.2f}% vs {label}", color
+
+
+def card_chg(col, label, value, ch, ref):
+    txt, clr = change_sub(ch, ref)
+    kpi_card(col, label, value, txt, clr)
+
+
+# ============================================================
+# --- Key Insights (auto-generated headlines, shown at the top of the page) ---
+# ============================================================
+LARGE_MOVE_PCT = 50.0
+TONE_STYLE = {
+    "up":      ("▲", "#16a34a"),
+    "down":    ("▼", "#dc2626"),
+    "neutral": ("●", "#6b7280"),
+}
+WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+WEEKDAYS_FULL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def change_phrase(ch, flat=1.0):
+    """('up 5.2%' | 'down 3.1%' | 'flat', tone) for a % change; (None, 'neutral') if unavailable."""
+    if ch is None or pd.isna(ch):
+        return None, "neutral"
+    if abs(ch) < flat:
+        return "flat", "neutral"
+    return (f"up {abs(ch):.1f}%" if ch > 0 else f"down {abs(ch):.1f}%"), ("up" if ch > 0 else "down")
+
+
+def _why_last(df, ch):
+    """Explain a big day-over-day move of a daily series using only the data."""
+    if df is None or len(df) < 9:
+        return None
+    s_ = df["value"]
+    last_v, prev_v = s_.iloc[-1], s_.iloc[-2]
+    base = s_.iloc[-9:-2].mean()                     # 7 days before the previous day
+    own = s_.iloc[-8:-1].mean()                      # 7 days before the latest day
+    parts = []
+    if base > 0 and abs(prev_v / base - 1) >= 0.30:
+        parts.append(f"base effect: the previous day ({fmt_num(prev_v)}) was already "
+                     f"{abs(prev_v / base - 1) * 100:.0f}% {'above' if prev_v > base else 'below'} its own trailing 7-day average ({fmt_num(base)})")
+    if own > 0:
+        vs = (last_v / own - 1) * 100
+        if abs(vs) >= 30:
+            parts.append(f"the latest day is {abs(vs):.0f}% {'above' if vs > 0 else 'below'} its trailing 7-day average ({fmt_num(own)}), "
+                         f"so it is {'a genuine spike' if vs > 0 else 'a genuine drop'} and not only a rebound")
+        elif not parts:
+            parts.append(f"the latest day is close to its trailing 7-day average ({fmt_num(own)}), "
+                         f"so the swing mostly reflects an unusual previous day")
+    rec = df.tail(90)
+    wd_mean = rec.assign(wd=rec["date"].dt.dayofweek).groupby("wd")["value"].mean()
+    d_last, d_prev = df["date"].iloc[-1].dayofweek, df["date"].iloc[-2].dayofweek
+    if d_last in wd_mean.index and d_prev in wd_mean.index and wd_mean[d_prev] > 0:
+        wd = (wd_mean[d_last] / wd_mean[d_prev] - 1) * 100
+        if abs(wd) >= 20:
+            parts.append(f"weekday effect: {WEEKDAYS[d_last]} is typically {abs(wd):.0f}% {'higher' if wd > 0 else 'lower'} than {WEEKDAYS[d_prev]}")
+    return "; ".join(parts) if parts else None
+
+
+def _why_window(df, n, ch, mode):
+    """Explain a big n-day window move: vs a longer baseline and whether one day drives it."""
+    if df is None or len(df) < 2 * n + 30:
+        return None
+    v = df["value"]
+    cur = v.tail(n)
+    parts = []
+    base = v.iloc[-(2 * n + 90):-n]                  # up to ~90 days before the current window
+    if base.mean() > 0:
+        vs = (cur.mean() / base.mean() - 1) * 100
+        if abs(vs) >= 30:
+            parts.append(f"against a longer baseline ({len(base)} days before) the window is still {abs(vs):.0f}% "
+                         f"{'above' if vs > 0 else 'below'} normal, so it is {'a real surge' if vs > 0 else 'a real slowdown'}")
+        else:
+            parts.append(f"base effect: the comparison window was unusually {'weak' if ch > 0 else 'strong'}; "
+                         f"versus the longer baseline the current level is only {vs:+.0f}%")
+    if mode == "sum" and cur.sum() > 0 and cur.max() / cur.sum() >= 2.5 / n:
+        d = df["date"].iloc[len(df) - n + int(np.argmax(cur.values))]
+        parts.append(f"one day ({d.strftime('%b %d')}) contributes {cur.max() / cur.sum() * 100:.0f}% of the window, so the move is concentrated")
+    return "; ".join(parts) if parts else None
+
+
+def build_insights():
+    out = []                                              # (tone, html)
+    day = last_day.strftime("%b %d, %Y")
+
+    # 1) Size of the activity base
+    _, ch30 = window_sum(tx, 30)
+    w, tone = change_phrase(ch30)
+    out.append((tone, f"<b>{fmt_num(tx['value'].sum())}</b> transactions have been processed on Ink since {first_day.strftime('%b %d, %Y')}"
+                      + (f" — the last 30 days are {w} vs the 30 days before." if w else ".")))
+
+    # 2) Transactions, last 7 days
+    t7, t7ch = window_sum(tx, 7)
+    w, tone = change_phrase(t7ch)
+    if t7 is not None:
+        out.append((tone, f"<b>{fmt_num(t7)}</b> transactions in the last 7 days" + (f" ({w} vs the previous 7 days)." if w else ".")))
+
+    # 3) Momentum (7-day vs 30-day average)
+    a7, _ = window_avg(tx, 7)
+    a30, _ = window_avg(tx, 30)
+    if a7 is not None and a30:
+        ratio = a7 / a30
+        if ratio >= 1.10:
+            out.append(("up", f"Transaction activity is <b>accelerating</b>: the 7-day average ({fmt_num(a7)}/day) is "
+                              f"{abs(ratio - 1) * 100:.0f}% above the 30-day average ({fmt_num(a30)}/day)."))
+        elif ratio <= 0.90:
+            out.append(("down", f"Transaction activity is <b>cooling</b>: the 7-day average ({fmt_num(a7)}/day) is "
+                                f"{abs(1 - ratio) * 100:.0f}% below the 30-day average ({fmt_num(a30)}/day)."))
+
+    # 4) Active addresses
+    if daa is not None:
+        d_last, d_ch = last_vs_prev(daa)
+        d7, d7ch = window_avg(daa, 7)
+        w, tone = change_phrase(d_ch)
+        txt = f"<b>{fmt_num(d_last)}</b> addresses were active on {day}" + (f" ({w} vs the day before)" if w else "")
+        w7, _ = change_phrase(d7ch)
+        txt += (f"; the 7-day average is {fmt_num(d7)}/day" + (f" ({w7} vs the prior week)." if w7 else ".")) if d7 is not None else "."
+        out.append((tone, txt))
+
+    # 5) Intensity: transactions per active address
+    if "txsPerActive" in series and len(tx) >= 14 and daa is not None:
+        m = tx.merge(daa, on="date", suffixes=("_tx", "_act")).tail(14)
+        if len(m) == 14 and m["value_act"].iloc[:7].sum() > 0 and m["value_act"].iloc[7:].sum() > 0:
+            cur = m["value_tx"].iloc[7:].sum() / m["value_act"].iloc[7:].sum()
+            prv = m["value_tx"].iloc[:7].sum() / m["value_act"].iloc[:7].sum()
+            w, tone = change_phrase(pct(cur, prv))
+            out.append((tone, f"Each active address made <b>{cur:,.1f}</b> transactions per day on average over the last 7 days"
+                              + (f" ({w} vs the previous week)." if w else ".")))
+
+    # 6) Records
+    for label, s_ in (("daily transactions", tx), ("daily active addresses", daa)):
+        if s_ is None or s_.empty:
+            continue
+        top = s_.loc[s_["value"].idxmax()]
+        if top["date"] >= last_day - pd.Timedelta(days=6):
+            out.append(("up", f"🏆 <b>New all-time high</b> in {label}: <b>{fmt_num(top['value'])}</b> on {top['date'].strftime('%b %d, %Y')}."))
+    top = tx.loc[tx["value"].idxmax()]
+    t_last, _ = last_vs_prev(tx)
+    if top["date"] < last_day - pd.Timedelta(days=6) and t_last is not None:
+        out.append(("neutral", f"All-time peak of daily transactions: <b>{fmt_num(top['value'])}</b> on {top['date'].strftime('%b %d, %Y')}; "
+                               f"the latest day is {t_last / top['value'] * 100:.0f}% of that level."))
+
+    # 7) Fees
+    if fees_usd is not None and not fees_usd.empty:
+        f7, f7ch = window_sum(fees_usd, 7)
+        if f7 is not None:
+            w, tone = change_phrase(f7ch)
+            out.append((tone, f"Users paid <b>{usd_compact(f7)}</b> in fees over the last 7 days"
+                              + (f" ({w} vs the previous 7 days)" if w else "")
+                              + (f"; the average fee on the latest day was <b>{usd_small(fee_per_tx_last(fees_usd))}</b> per transaction." if fee_per_tx_last(fees_usd) is not None else ".")))
+
+    # 8) Weekday pattern (last 90 days)
+    rec = tx.tail(90)
+    if len(rec) >= 28:
+        g = rec.assign(wd=rec["date"].dt.dayofweek).groupby("wd")["value"].mean()
+        best, worst = g.idxmax(), g.idxmin()
+        if g[worst] > 0:
+            out.append(("neutral", f"Over the last 90 days, <b>{WEEKDAYS_FULL[best]}</b> is the busiest day "
+                                   f"({fmt_num(g[best])} transactions on average) and <b>{WEEKDAYS_FULL[worst]}</b> the quietest "
+                                   f"({fmt_num(g[worst])}) — a {((g[best] / g[worst]) - 1) * 100:.0f}% gap."))
+    out.sort(key=lambda x: 0 if "🏆" in x[1] else 1)         # record-high news goes first
+    return out
+
+
+def build_large_moves():
+    """(tone, headline_html, why) for every headline indicator with |change| >= LARGE_MOVE_PCT."""
+    out = []
+
+    def add(ch, headline, why):
+        if ch is None or pd.isna(ch) or abs(ch) < LARGE_MOVE_PCT:
+            return
+        out.append(("up" if ch > 0 else "down", f"{headline} — <b>{ch:+.0f}%</b>", why))
+
+    for n in (7, 30):
+        v, ch = window_sum(tx, n)
+        add(ch, f"Transactions, last {n} days ({fmt_num(v)})", _why_window(tx, n, ch, "sum"))
+    v, ch = ytd_sum(tx)
+    if v is not None and ch is not None and abs(ch) >= LARGE_MOVE_PCT and ch > -100:
+        end = tx["date"].max()
+        add(ch, f"Transactions, year to date ({fmt_num(v)})",
+            f"compared with {fmt_num(v / (1 + ch / 100))} in the same period of {end.year - 1}"
+            + ("; a much smaller comparison base amplifies the percentage." if ch > 0 else "."))
+    for n in (7, 30):
+        v, ch = window_avg(tx, n)
+        add(ch, f"Transactions, {n}D average ({fmt_num(v)}/day)", _why_window(tx, n, ch, "avg"))
+    v, ch = last_vs_prev(tx)
+    add(ch, f"Transactions, latest day ({fmt_num(v)})", _why_last(tx, ch))
+
+    if daa is not None:
+        for n in (7, 30):
+            v, ch = window_avg(daa, n)
+            add(ch, f"Active addresses, {n}D average ({fmt_num(v)}/day)", _why_window(daa, n, ch, "avg"))
+        v, ch = last_vs_prev(daa)
+        add(ch, f"Active addresses, latest day ({fmt_num(v)})", _why_last(daa, ch))
+    if "txsPerActive" in series:
+        tpa_ = series["txsPerActive"][0]
+        v, ch = last_vs_prev(tpa_)
+        add(ch, f"Transactions per address, latest day ({v:,.2f})" if v is not None else "Transactions per address",
+            _why_last(tpa_, ch))
+    if fees_usd is not None:
+        for n in (7, 30):
+            v, ch = window_sum(fees_usd, n)
+            add(ch, f"Fees paid, last {n} days ({usd_compact(v)})", _why_window(fees_usd, n, ch, "sum"))
+
+    out.sort(key=lambda x: -abs(float(x[1].split("<b>")[-1].split("%")[0])))
+    return out
+
+
+def render_insights():
+    insights = build_insights()
+    large_moves = build_large_moves()
+    items = "".join(
+        f'<li style="margin:6px 0;"><span style="color:{TONE_STYLE[t][1]}; font-weight:700;">{TONE_STYLE[t][0]}</span> {txt}</li>'
+        for t, txt in insights
+    )
+    if large_moves:
+        lm_items = "".join(
+            f'<li style="margin:8px 0;"><span style="color:{TONE_STYLE[t][1]}; font-weight:700;">{TONE_STYLE[t][0]}</span> {head}'
+            + (f'<div style="font-size:13.5px; color:#4b5563; margin-left:18px;">Why: {why}.</div>' if why else
+               '<div style="font-size:13.5px; color:#4b5563; margin-left:18px;">Why: no single driver stands out in the data.</div>')
+            + "</li>"
+            for t, head, why in large_moves
+        )
+        lm_block = (f'<div style="border-top:1px dashed #b99cf9; margin-top:10px; padding-top:8px;">'
+                    f'<div style="font-weight:700; font-size:16px;">⚠️ Large moves (±{LARGE_MOVE_PCT:.0f}% or more) — what is behind them</div>'
+                    f'<ul style="list-style:none; padding-left:0; margin:6px 0 4px 0;">{lm_items}</ul>'
+                    f'<div style="font-size:12px; color:#6b7280;">Explanations show what moved in the data (base effect, outlier days, weekday pattern); '
+                    f'they do not identify real-world causes such as campaigns or incentives.</div></div>')
+    else:
+        lm_block = ('<div style="border-top:1px dashed #b99cf9; margin-top:10px; padding-top:8px; font-size:13.5px; color:#6b7280;">'
+                    f'No headline indicator moved by ±{LARGE_MOVE_PCT:.0f}% or more.</div>')
+    with insights_box:
+        st.markdown(
+            f"""
+        <div style="background:#F1EAFE; border:1px solid #d9c8fb; border-left:6px solid #7132f5;
+                    border-radius:10px; padding:14px 20px; margin-top:12px; color:#1a1a1a; font-size:15.5px; line-height:1.55;">
+            <div style="font-weight:700; font-size:18px; margin-bottom:4px;">📰 Key Insights — latest complete day: {last_day.strftime('%Y-%m-%d')} (UTC)</div>
+            <ul style="list-style:none; padding-left:0; margin:6px 0 4px 0;">{items}</ul>
+            {lm_block}
+            <div style="font-size:12px; color:#6b7280; margin-top:8px;">Auto-generated from the daily data; independent of the Time Frame and Range filters below.</div>
+        </div>
+        """,
+            unsafe_allow_html=True,
+        )
+
+
+# ============================================================
 # --- KPIs ---
 # ============================================================
 if tx is not None:
@@ -333,51 +616,50 @@ if tx is not None:
     st.markdown(f"##### Latest complete day: {last_day.strftime('%Y-%m-%d')} (UTC)")
     st.caption(f"Data available from {first_day.strftime('%Y-%m-%d')} to {last_day.strftime('%Y-%m-%d')} "
                f"({len(tx):,} days).")
+    render_insights()
 
 # Row 1 — transaction totals
 r1 = st.columns(4)
-r1[0].metric("Total Transactions (since first data day)", fmt_num(tx["value"].sum()) if tx is not None else "N/A")
+kpi_card(r1[0], "Total Transactions", fmt_num(tx["value"].sum()) if tx is not None else "N/A", "Since first data day")
 v, ch = window_sum(tx, 7)
-r1[1].metric("Transactions (7d)", fmt_num(v), dlt(ch))
+card_chg(r1[1], "Transactions (7d)", fmt_num(v), ch, "previous 7d")
 v, ch = window_sum(tx, 30)
-r1[2].metric("Transactions (30d)", fmt_num(v), dlt(ch))
+card_chg(r1[2], "Transactions (30d)", fmt_num(v), ch, "previous 30d")
 v, ch = ytd_sum(tx)
-r1[3].metric("Transactions (ytd)", fmt_num(v), dlt(ch))
+card_chg(r1[3], "Transactions (ytd)", fmt_num(v), ch, "same period last year")
 
 # Row 2 — daily transaction levels
 r2 = st.columns(4)
 v, ch = last_vs_prev(tx)
-r2[0].metric("Transactions (last day)", fmt_num(v), dlt(ch))
+card_chg(r2[0], "Transactions (last day)", fmt_num(v), ch, "previous day")
 v, ch = window_avg(tx, 7)
-r2[1].metric("7D Avg / Day", fmt_num(v), dlt(ch))
+card_chg(r2[1], "7D Avg / Day", fmt_num(v), ch, "previous 7d")
 v, ch = window_avg(tx, 30)
-r2[2].metric("30D Avg / Day", fmt_num(v), dlt(ch))
+card_chg(r2[2], "30D Avg / Day", fmt_num(v), ch, "previous 30d")
 if tx is not None:
     peak = tx.loc[tx["value"].idxmax()]
-    r2[3].metric("Peak Daily Transactions", fmt_num(peak["value"]), peak["date"].strftime("%Y-%m-%d"), delta_color="off")
+    kpi_card(r2[3], "Peak Daily Transactions", fmt_num(peak["value"]), f"📅 {peak['date'].strftime('%b %d, %Y')}")
 else:
-    r2[3].metric("Peak Daily Transactions", "N/A")
+    kpi_card(r2[3], "Peak Daily Transactions", "N/A")
 
 # Row 3 — addresses
 r3 = st.columns(4)
 v, ch = last_vs_prev(daa)
-r3[0].metric("Active Addresses (last day)", fmt_num(v), dlt(ch))
+card_chg(r3[0], "Active Addresses (last day)", fmt_num(v), ch, "previous day")
 tpa = series["txsPerActive"][0] if "txsPerActive" in series else None
 v, ch = last_vs_prev(tpa)
-r3[1].metric("Transaction per Address (last day)", f"{v:,.2f}" if v is not None else "N/A", dlt(ch))
+card_chg(r3[1], "Transaction per Address (last day)", f"{v:,.2f}" if v is not None else "N/A", ch, "previous day")
 v, ch = window_avg(daa, 7)
-r3[2].metric("Avg Daily Active Address (7d)", fmt_num(v), dlt(ch))
+card_chg(r3[2], "Avg Daily Active Address (7d)", fmt_num(v), ch, "previous 7d")
 v, ch = window_avg(daa, 30)
-r3[3].metric("Avg Daily Active Address (30d)", fmt_num(v), dlt(ch))
+card_chg(r3[3], "Avg Daily Active Address (30d)", fmt_num(v), ch, "previous 30d")
 
 # Row 4 — fees
 r4 = st.columns(4)
-r4[0].metric("Total Fees Paid $ (since first data day)",
-             usd_compact(fees_usd["value"].sum()) if fees_usd is not None else "N/A")
-r4[1].metric("Total Fees Paid ETH (since first data day)",
-             eth_fmt(fees_eth["value"].sum()) if fees_eth is not None else "N/A")
-r4[2].metric("Avg Fee per Transaction $ (last day)", usd_small(fee_per_tx_last(fees_usd)))
-r4[3].metric("Avg Fee per Transaction ETH (last day)", eth_fmt(fee_per_tx_last(fees_eth), 8))
+kpi_card(r4[0], "Total Fees Paid ($)", usd_compact(fees_usd["value"].sum()) if fees_usd is not None else "N/A", "Since first data day")
+kpi_card(r4[1], "Total Fees Paid (ETH)", eth_fmt(fees_eth["value"].sum()) if fees_eth is not None else "N/A", "Since first data day")
+kpi_card(r4[2], "Avg Fee per Transaction ($)", usd_small(fee_per_tx_last(fees_usd)), "Latest day")
+kpi_card(r4[3], "Avg Fee per Transaction (ETH)", eth_fmt(fee_per_tx_last(fees_eth), 8), "Latest day")
 
 st.markdown("---")
 
