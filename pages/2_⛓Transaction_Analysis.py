@@ -120,7 +120,7 @@ CHARTS = {
     "txnsGrowth":   dict(title="Cumulative Transactions Over Time",         agg="last", kind="area", ma=False, units="transactions"),  # derived
     "daa":          dict(title="Active Addresses Over Time",                agg="mean", kind="bar",  ma=True,  units="addresses",
                          title_agg="Active Addresses (daily avg)"),
-    "txsPerActive": dict(title="Transactions per Active Address", agg="mean", kind="line", ma=False, units="txs / address"),  # derived
+    "txsPerActive": dict(title="Transactions per Active Address Over Time", agg="mean", kind="line", ma=False, units="txs / address"),  # derived
 }
 GROUPS = [
     ("Transactions Analysis", ["txcount", "txnsGrowth"]),
