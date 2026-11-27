@@ -116,9 +116,9 @@ CHAIN = "ink"
 #   agg  = how daily rows are combined into weekly / monthly buckets
 #   kind = chart style
 CHARTS = {
-    "txcount":      dict(title="Transactions",                    agg="sum",  kind="bar",  ma=True,  units="transactions"),
-    "txnsGrowth":   dict(title="Cumulative Transactions",         agg="last", kind="area", ma=False, units="transactions"),  # derived
-    "daa":          dict(title="Active Addresses",                agg="mean", kind="bar",  ma=True,  units="addresses",
+    "txcount":      dict(title="Number of Transactions Over Time",                    agg="sum",  kind="bar",  ma=True,  units="transactions"),
+    "txnsGrowth":   dict(title="Cumulative Transactions Over Time",         agg="last", kind="area", ma=False, units="transactions"),  # derived
+    "daa":          dict(title="Active Addresses Over Time",                agg="mean", kind="bar",  ma=True,  units="addresses",
                          title_agg="Active Addresses (daily avg)"),
     "txsPerActive": dict(title="Transactions per Active Address", agg="mean", kind="line", ma=False, units="txs / address"),  # derived
 }
